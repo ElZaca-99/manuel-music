@@ -4,10 +4,13 @@
 
 FROM node:18-alpine
 
-# Instalar yt-dlp y ffmpeg (necesarios para descargar música)
-RUN apk add --no-cache python3 py3-pip ffmpeg
-
-RUN pip3 install --no-cache-dir yt-dlp
+# Instalar dependencias del sistema
+RUN apk update && apk add --no-cache \
+    python3 \
+    py3-pip \
+    ffmpeg \
+    yt-dlp \
+    && rm -rf /var/cache/apk/*
 
 # Directorio de trabajo
 WORKDIR /app
@@ -22,7 +25,7 @@ COPY frontend/ ./frontend/
 COPY public/ ./public/
 
 # Puerto
-EXPOSE 3002
+EXPOSE 3000
 
 # Comando de inicio
 CMD ["node", "backend/server.js"]
