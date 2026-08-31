@@ -732,4 +732,4 @@ window.closeFolderModal = closeFolderModal;
 window.confirmDownload = confirmDownload;
 window.playNext = playNext;
 window.playPrevious = playPrevious;
-window.closeYouTubePlayer = closeYouTubePlayer;
+window.closeYouTubePlayer = closeYouTubePlayer:
