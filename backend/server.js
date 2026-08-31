@@ -1,5 +1,5 @@
 // ========================================
-// 🎵 MANUEL MUSIC - SERVIDOR CON API PIPED
+//  MANUEL MUSIC - SERVIDOR CON PIPED
 // ========================================
 
 const express = require('express');
@@ -10,36 +10,64 @@ const https = require('https');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Instancia de Piped (puedes cambiar si una cae)
+// Instancias de Piped verificadas (actualizadas)
 const PIPED_INSTANCES = [
     'https://pipedapi.kavin.rocks',
-    'https://pipedapi.adminforge.de',
-    'https://pipedapi.in.projectsegfau.lt',
-    'https://pipedapi.mha.fi',
-    'https://api.piped.materials.cloud',
-    'https://pipedapi.ducks.party'
+'https://pipedapi.adminforge.de',
+'https://pipedapi.in.projectsegfau.lt',
+'https://pipedapi.ducks.party',
+'https://api.piped.projectsegfau.lt'
 ];
-function getPipedInstance() {
-    return PIPED_INSTANCES[Math.floor(Math.random() * PIPED_INSTANCES.length)];
+
+let currentIndex = 0;
+
+function getNextInstance() {
+    const instance = PIPED_INSTANCES[currentIndex];
+    currentIndex = (currentIndex + 1) % PIPED_INSTANCES.length;
+    return instance;
 }
 
-// Función helper para hacer peticiones HTTPS
-function fetchFromPiped(urlPath) {
+// Función para hacer peticiones HTTPS con retry
+function fetchFromPiped(urlPath, retries = 3) {
     return new Promise((resolve, reject) => {
-        const instance = getPipedInstance();
-        const url = `${instance}${urlPath}`;
+        const attempt = (attemptNum) => {
+            if (attemptNum > retries) {
+                return reject(new Error('Todas las instancias de Piped fallaron'));
+            }
 
-        https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try {
-                    resolve(JSON.parse(data));
-                } catch (e) {
-                    reject(new Error('JSON inválido de Piped'));
-                }
+            const instance = getNextInstance();
+            const url = `${instance}${urlPath}`;
+
+            console.log(` Intentando: ${instance.substring(0, 30)}...`);
+
+            https.get(url, {
+                headers: { 'User-Agent': 'Mozilla/5.0' },
+                timeout: 10000
+            }, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                    try {
+                        const json = JSON.parse(data);
+                        if (json.error || !json.items) {
+                            throw new Error('Respuesta inválida de Piped');
+                        }
+                        resolve(json);
+                    } catch (e) {
+                        console.log(`⚠️ Instancia ${instance} falló, intentando siguiente...`);
+                        setTimeout(() => attempt(attemptNum + 1), 100);
+                    }
+                });
+            }).on('error', (e) => {
+                console.log(` Error en ${instance}: ${e.message}`);
+                setTimeout(() => attempt(attemptNum + 1), 100);
+            }).on('timeout', () => {
+                console.log(`⏱️ Timeout en ${instance}`);
+                attempt(attemptNum + 1);
             });
-        }).on('error', reject);
+        };
+
+        attempt(1);
     });
 }
 
@@ -98,12 +126,16 @@ app.get('/api/search', async (req, res) => {
         res.json(results);
     } catch (error) {
         console.error('❌ Error en búsqueda:', error.message);
-        res.status(500).json({ error: 'Error en la búsqueda', details: error.message });
+        res.status(500).json({
+            error: 'Error en la búsqueda',
+            details: error.message,
+            fallback: true
+        });
     }
 });
 
 // ========================================
-// API: DESCARGAR CANCIÓN (vía Piped proxy)
+// API: DESCARGAR CANCIÓN
 // ========================================
 
 app.post('/api/download', async (req, res) => {
@@ -114,13 +146,11 @@ app.post('/api/download', async (req, res) => {
     }
 
     const safeTitle = title.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s]/g, '').substring(0, 200).trim();
-    console.log(`⬇️ Descargando: "${safeTitle}"`);
+    console.log(`️ Descargando: "${safeTitle}"`);
 
     try {
-        // Obtener info del video desde Piped
         const videoData = await fetchFromPiped(`/streams/${id}`);
 
-        // Buscar el stream de audio
         const audioStreams = (videoData.audioStreams || [])
         .filter(s => s.mimeType && s.mimeType.includes('audio'))
         .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
@@ -131,7 +161,6 @@ app.post('/api/download', async (req, res) => {
 
         const audioUrl = audioStreams[0].url;
 
-        // Redirigir al stream de audio
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp3"`);
         res.redirect(302, audioUrl);
@@ -152,11 +181,11 @@ app.post('/api/download', async (req, res) => {
 app.get('/api/recommended', async (req, res) => {
     const categories = [
         { id: 'tendencias', title: '🔥 Tendencias', query: 'top hits 2024' },
-        { id: 'clasicos', title: '🎸 Clásicos', query: 'rock classics greatest hits' },
+        { id: 'clasicos', title: ' Clásicos', query: 'rock classics greatest hits' },
         { id: 'lofi', title: '🎧 Lo-Fi & Chill', query: 'lo-fi hip hop beats' },
         { id: 'reggaeton', title: '💃 Reggaeton', query: 'reggaeton hits' },
         { id: 'pop', title: '🎵 Pop Internacional', query: 'pop hits international' },
-        { id: 'electro', title: ' Electrónica', query: 'electronic dance music' }
+        { id: 'electro', title: '⚡ Electrónica', query: 'electronic dance music' }
     ];
 
     const results = {};
@@ -179,6 +208,7 @@ app.get('/api/recommended', async (req, res) => {
             });
             results[cat.id] = { title: cat.title, songs };
         } catch (error) {
+            console.error(`❌ Error en categoría ${cat.id}:`, error.message);
             results[cat.id] = { title: cat.title, songs: [] };
         }
     });
@@ -218,7 +248,8 @@ app.get('/api/random-artists', async (req, res) => {
         res.json(selected);
     } catch (error) {
         console.error('❌ Error buscando artistas:', error.message);
-        res.status(500).json({ error: 'Error al obtener artistas' });
+        // Devolver artistas de fallback
+        res.json(['Bad Bunny', 'Duki', 'Feid', 'Shakira', 'Karol G']);
     }
 });
 
