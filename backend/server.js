@@ -1,11 +1,12 @@
 // ========================================
-// 🎵 MANUEL MUSIC - CON YT-SEARCH
+// 🎵 MANUEL MUSIC - CON YT-SEARCH + YTDLCORE
 // ========================================
 
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const yts = require('yt-search');
+const ytdl = require('@distube/ytdl-core');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -49,9 +50,9 @@ app.get('/api/search', async (req, res) => {
 
         const results = r.videos.slice(0, 50).map(video => ({
             id: video.videoId,
-            title: video.title,
-            duration: formatDuration(video.seconds),
-                                                            uploader: video.author.name || video.author,
+            title: String(video.title || 'Sin título'),
+                                                            duration: formatDuration(video.seconds),
+                                                            uploader: String(video.author?.name || video.author || 'Artista desconocido'),
                                                             thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`
         }));
 
@@ -74,24 +75,26 @@ app.post('/api/download', async (req, res) => {
         return res.status(400).json({ error: 'Falta el ID del video' });
     }
 
-    const safeTitle = title.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s]/g, '').substring(0, 200).trim();
-    console.log(`⬇️ Descargando: "${safeTitle}"`);
+    const safeTitle = String(title || 'cancion').replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s]/g, '').substring(0, 200).trim();
+    console.log(`️ Descargando: "${safeTitle}"`);
 
     try {
-        // Obtener info del video
-        const video = await yts({ videoId: id });
+        const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`);
 
-        // Buscar stream de audio
-        const audioStream = video.streams.find(s => s.type === 'audio') ||
-        video.streams[0];
+        // Buscar stream de audio de mejor calidad
+        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
 
-        if (!audioStream) {
-            throw new Error('No se encontró stream de audio');
+        if (audioFormats.length === 0) {
+            throw new Error('No se encontraron formatos de audio');
         }
+
+        // Ordenar por bitrate y tomar el mejor
+        audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
+        const bestAudio = audioFormats[0];
 
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp3"`);
-        res.redirect(302, audioStream.url);
+        res.redirect(302, bestAudio.url);
 
         console.log(`✅ Descarga iniciada: ${safeTitle}`);
     } catch (error) {
@@ -108,9 +111,9 @@ app.post('/api/download', async (req, res) => {
 
 app.get('/api/recommended', async (req, res) => {
     const categories = [
-        { id: 'tendencias', title: '🔥 Tendencias', query: 'top hits 2024' },
+        { id: 'tendencias', title: ' Tendencias', query: 'top hits 2024' },
         { id: 'clasicos', title: '🎸 Clásicos', query: 'rock classics greatest hits' },
-        { id: 'lofi', title: '🎧 Lo-Fi & Chill', query: 'lo-fi hip hop beats' },
+        { id: 'lofi', title: ' Lo-Fi & Chill', query: 'lo-fi hip hop beats' },
         { id: 'reggaeton', title: '💃 Reggaeton', query: 'reggaeton hits' },
         { id: 'pop', title: '🎵 Pop Internacional', query: 'pop hits international' },
         { id: 'electro', title: '⚡ Electrónica', query: 'electronic dance music' }
@@ -124,15 +127,15 @@ app.get('/api/recommended', async (req, res) => {
 
             const songs = r.videos.slice(0, 15).map(video => ({
                 id: video.videoId,
-                title: video.title,
-                duration: formatDuration(video.seconds),
-                                                              uploader: video.author.name || video.author,
+                title: String(video.title || 'Sin título'),
+                                                              duration: formatDuration(video.seconds),
+                                                              uploader: String(video.author?.name || video.author || 'Artista'),
                                                               thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`
             }));
 
             results[cat.id] = { title: cat.title, songs };
         } catch (error) {
-            console.error(`❌ Error en categoría ${cat.id}:`, error.message);
+            console.error(` Error en categoría ${cat.id}:`, error.message);
             results[cat.id] = { title: cat.title, songs: [] };
         }
     });
@@ -161,7 +164,7 @@ app.get('/api/random-artists', async (req, res) => {
         const r = await yts({ query: randomTerm, video: true });
 
         const artists = r.videos
-        .map(video => video.author.name || video.author)
+        .map(video => String(video.author?.name || video.author || ''))
         .filter(name => name && name.length > 2 && !name.includes('Topic') && !name.includes('VEVO'))
         .filter((name, index, self) => self.indexOf(name) === index);
 
@@ -172,7 +175,6 @@ app.get('/api/random-artists', async (req, res) => {
         res.json(selected);
     } catch (error) {
         console.error('❌ Error buscando artistas:', error.message);
-        // Fallback
         res.json(['Bad Bunny', 'Duki', 'Feid', 'Shakira', 'Karol G']);
     }
 });
@@ -191,17 +193,21 @@ app.get('/api/stream', async (req, res) => {
     console.log(`▶️ Obteniendo stream para: ${id}`);
 
     try {
-        const video = await yts({ videoId: id });
+        const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`);
 
-        const audioStream = video.streams.find(s => s.type === 'audio') ||
-        video.streams[0];
+        // Buscar stream de audio
+        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
 
-        if (!audioStream) {
+        if (audioFormats.length === 0) {
             throw new Error('No se encontró stream de audio');
         }
 
+        // Ordenar por bitrate y tomar el mejor
+        audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
+        const streamUrl = audioFormats[0].url;
+
         console.log(`✅ Stream obtenido`);
-        res.redirect(302, audioStream.url);
+        res.redirect(302, streamUrl);
     } catch (error) {
         console.error('❌ Error obteniendo stream:', error.message);
         res.status(500).json({ error: 'No se pudo obtener el stream' });
@@ -227,8 +233,8 @@ app.get('/api/health', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`
     ╔══════════════════════════════════════╗
-    ║   🎵 MANUEL MUSIC SERVER            ║
-    ║                                      ║
+    ║    MANUEL MUSIC SERVER            ║
+    ║
     ║   🌐 Local: http://localhost:${PORT}  ║
     ║   Estado: ✅ Activo                  ║
     ╚══════════════════════════════════════╝
