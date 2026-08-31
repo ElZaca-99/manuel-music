@@ -1,5 +1,5 @@
 // ========================================
-//  MANUEL MUSIC - SERVIDOR CON PIPED
+//  MANUEL MUSIC - CON INVIDIOUS + PIPED (FALLBACK)
 // ========================================
 
 const express = require('express');
@@ -10,68 +10,121 @@ const https = require('https');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Instancias de Piped verificadas (actualizadas)
+// Instancias de Invidious (más estables)
+const INVIDIOUS_INSTANCES = [
+    'https://invidious.fdn.fr',
+'https://inv.nadeko.net',
+'https://invidious.privacyredirect.com',
+'https://iv.datura.network',
+'https://invidious.io.lol',
+'https://yt.artemislena.eu',
+'https://invidious.nerdvpn.de'
+];
+
+// Instancias de Piped (fallback)
 const PIPED_INSTANCES = [
     'https://pipedapi.kavin.rocks',
 'https://pipedapi.adminforge.de',
-'https://pipedapi.in.projectsegfau.lt',
-'https://pipedapi.ducks.party',
-'https://api.piped.projectsegfau.lt'
+'https://pipedapi.in.projectsegfau.lt'
 ];
 
-let currentIndex = 0;
+let invIndex = 0;
+let pipedIndex = 0;
 
-function getNextInstance() {
-    const instance = PIPED_INSTANCES[currentIndex];
-    currentIndex = (currentIndex + 1) % PIPED_INSTANCES.length;
-    return instance;
+function getNextInvidious() {
+    const inst = INVIDIOUS_INSTANCES[invIndex];
+    invIndex = (invIndex + 1) % INVIDIOUS_INSTANCES.length;
+    return inst;
 }
 
-// Función para hacer peticiones HTTPS con retry
-function fetchFromPiped(urlPath, retries = 3) {
+function getNextPiped() {
+    const inst = PIPED_INSTANCES[pipedIndex];
+    pipedIndex = (pipedIndex + 1) % PIPED_INSTANCES.length;
+    return inst;
+}
+
+// Función genérica para hacer peticiones HTTPS
+function httpsGet(url, timeout = 10000) {
     return new Promise((resolve, reject) => {
-        const attempt = (attemptNum) => {
-            if (attemptNum > retries) {
-                return reject(new Error('Todas las instancias de Piped fallaron'));
-            }
-
-            const instance = getNextInstance();
-            const url = `${instance}${urlPath}`;
-
-            console.log(` Intentando: ${instance.substring(0, 30)}...`);
-
-            https.get(url, {
-                headers: { 'User-Agent': 'Mozilla/5.0' },
-                timeout: 10000
-            }, (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                    try {
-                        const json = JSON.parse(data);
-                        if (json.error || !json.items) {
-                            throw new Error('Respuesta inválida de Piped');
-                        }
-                        resolve(json);
-                    } catch (e) {
-                        console.log(`⚠️ Instancia ${instance} falló, intentando siguiente...`);
-                        setTimeout(() => attempt(attemptNum + 1), 100);
-                    }
-                });
-            }).on('error', (e) => {
-                console.log(` Error en ${instance}: ${e.message}`);
-                setTimeout(() => attempt(attemptNum + 1), 100);
-            }).on('timeout', () => {
-                console.log(`⏱️ Timeout en ${instance}`);
-                attempt(attemptNum + 1);
+        https.get(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: timeout
+        }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                } catch (e) {
+                    reject(new Error('JSON inválido'));
+                }
             });
-        };
-
-        attempt(1);
+        }).on('error', reject).on('timeout', () => reject(new Error('Timeout')));
     });
 }
 
-// Función para formatear duración
+// Buscar en Invidious con retry
+async function searchInvidious(query, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const instance = getNextInvidious();
+            const url = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
+            console.log(`  Invidious: ${instance.substring(0, 40)}...`);
+            const data = await httpsGet(url);
+            if (Array.isArray(data)) return data;
+        } catch (e) {
+            console.log(`  ⚠️ Invidious falló: ${e.message}`);
+        }
+    }
+    throw new Error('Todas las instancias de Invidious fallaron');
+}
+
+// Buscar en Piped con retry (fallback)
+async function searchPiped(query, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const instance = getNextPiped();
+            const url = `${instance}/search?q=${encodeURIComponent(query)}&filter=music_songs`;
+            console.log(`  Piped: ${instance.substring(0, 40)}...`);
+            const data = await httpsGet(url);
+            if (data.items) return data.items;
+        } catch (e) {
+            console.log(`  ⚠️ Piped falló: ${e.message}`);
+        }
+    }
+    throw new Error('Todas las instancias de Piped fallaron');
+}
+
+// Obtener info de video de Invidious
+async function getVideoInfoInvidious(videoId, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const instance = getNextInvidious();
+            const url = `${instance}/api/v1/videos/${videoId}`;
+            const data = await httpsGet(url);
+            if (data && data.videoId) return data;
+        } catch (e) {
+            console.log(`  ⚠️ Invidious video falló: ${e.message}`);
+        }
+    }
+    throw new Error('No se pudo obtener info del video');
+}
+
+// Obtener info de video de Piped
+async function getVideoInfoPiped(videoId, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const instance = getNextPiped();
+            const url = `${instance}/streams/${videoId}`;
+            const data = await httpsGet(url);
+            if (data && data.videoId) return data;
+        } catch (e) {
+            console.log(`  ️ Piped video falló: ${e.message}`);
+        }
+    }
+    throw new Error('No se pudo obtener info del video de Piped');
+}
+
 function formatDuration(seconds) {
     if (!seconds || isNaN(seconds)) return '0:00';
     const num = parseInt(seconds);
@@ -107,30 +160,46 @@ app.get('/api/search', async (req, res) => {
     console.log(`🔍 Buscando: "${query}"`);
 
     try {
-        const data = await fetchFromPiped(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
+        // Intentar primero con Invidious
+        let items;
+        try {
+            items = await searchInvidious(query);
+        } catch (e) {
+            console.log('⚠️ Invidious falló, probando Piped...');
+            items = await searchPiped(query);
+        }
 
-        const results = (data.items || [])
-        .filter(item => item.type === 'stream' && item.url)
+        // Normalizar resultados (Invidious y Piped tienen formatos diferentes)
+        const results = items
+        .filter(item => {
+            // Invidious: tiene videoId, Piped: tiene url
+            return item.videoId || (item.url && item.type === 'stream');
+        })
         .map(item => {
-            const videoId = item.url.replace('/watch?v=', '');
+            const videoId = item.videoId || item.url.replace('/watch?v=', '');
+            const title = item.title || 'Sin título';
+            const duration = item.lengthSeconds ? formatDuration(item.lengthSeconds) :
+            (item.duration ? formatDuration(item.duration) : '0:00');
+            const uploader = item.author || item.uploaderName || item.uploader || 'Artista';
+            const thumbnail = item.videoThumbnails?.[0]?.url ||
+            item.thumbnail ||
+            `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+
             return {
                 id: videoId,
-                title: item.title || 'Sin título',
-                duration: formatDuration(item.duration),
-             uploader: item.uploaderName || item.uploader || 'Artista desconocido',
-             thumbnail: item.thumbnail || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+                title,
+                duration,
+                uploader,
+                thumbnail
             };
-        });
+        })
+        .slice(0, 50);
 
         console.log(`✅ Encontradas ${results.length} canciones`);
         res.json(results);
     } catch (error) {
         console.error('❌ Error en búsqueda:', error.message);
-        res.status(500).json({
-            error: 'Error en la búsqueda',
-            details: error.message,
-            fallback: true
-        });
+        res.status(500).json({ error: 'Error en la búsqueda', details: error.message });
     }
 });
 
@@ -149,17 +218,41 @@ app.post('/api/download', async (req, res) => {
     console.log(`️ Descargando: "${safeTitle}"`);
 
     try {
-        const videoData = await fetchFromPiped(`/streams/${id}`);
+        let audioUrl = null;
 
-        const audioStreams = (videoData.audioStreams || [])
-        .filter(s => s.mimeType && s.mimeType.includes('audio'))
-        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+        // Intentar con Invidious primero
+        try {
+            const videoData = await getVideoInfoInvidious(id);
+            const adaptiveFormats = (videoData.adaptiveFormats || [])
+            .filter(f => f.type && f.type.includes('audio'))
+            .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
-        if (audioStreams.length === 0) {
-            throw new Error('No se encontraron streams de audio');
+            if (adaptiveFormats.length > 0) {
+                audioUrl = adaptiveFormats[0].url;
+            }
+        } catch (e) {
+            console.log('⚠️ Invidious download falló, probando Piped...');
         }
 
-        const audioUrl = audioStreams[0].url;
+        // Fallback a Piped
+        if (!audioUrl) {
+            try {
+                const videoData = await getVideoInfoPiped(id);
+                const audioStreams = (videoData.audioStreams || [])
+                .filter(s => s.mimeType && s.mimeType.includes('audio'))
+                .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+                if (audioStreams.length > 0) {
+                    audioUrl = audioStreams[0].url;
+                }
+            } catch (e) {
+                console.log('⚠️ Piped download también falló');
+            }
+        }
+
+        if (!audioUrl) {
+            throw new Error('No se encontró stream de audio en ninguna API');
+        }
 
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp3"`);
@@ -181,9 +274,9 @@ app.post('/api/download', async (req, res) => {
 app.get('/api/recommended', async (req, res) => {
     const categories = [
         { id: 'tendencias', title: '🔥 Tendencias', query: 'top hits 2024' },
-        { id: 'clasicos', title: ' Clásicos', query: 'rock classics greatest hits' },
+        { id: 'clasicos', title: '🎸 Clásicos', query: 'rock classics greatest hits' },
         { id: 'lofi', title: '🎧 Lo-Fi & Chill', query: 'lo-fi hip hop beats' },
-        { id: 'reggaeton', title: '💃 Reggaeton', query: 'reggaeton hits' },
+        { id: 'reggaeton', title: ' Reggaeton', query: 'reggaeton hits' },
         { id: 'pop', title: '🎵 Pop Internacional', query: 'pop hits international' },
         { id: 'electro', title: '⚡ Electrónica', query: 'electronic dance music' }
     ];
@@ -192,20 +285,30 @@ app.get('/api/recommended', async (req, res) => {
 
     const promises = categories.map(async (cat) => {
         try {
-            const data = await fetchFromPiped(`/search?q=${encodeURIComponent(cat.query)}&filter=music_songs`);
-            const songs = (data.items || [])
-            .filter(item => item.type === 'stream' && item.url)
+            let items;
+            try {
+                items = await searchInvidious(cat.query);
+            } catch (e) {
+                items = await searchPiped(cat.query);
+            }
+
+            const songs = items
+            .filter(item => item.videoId || (item.url && item.type === 'stream'))
             .slice(0, 15)
             .map(item => {
-                const videoId = item.url.replace('/watch?v=', '');
+                const videoId = item.videoId || item.url.replace('/watch?v=', '');
                 return {
                     id: videoId,
                     title: item.title || 'Sin título',
-                    duration: formatDuration(item.duration),
-                 uploader: item.uploaderName || 'Artista',
-                 thumbnail: item.thumbnail || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+                    duration: item.lengthSeconds ? formatDuration(item.lengthSeconds) :
+                    (item.duration ? formatDuration(item.duration) : '0:00'),
+                 uploader: item.author || item.uploaderName || 'Artista',
+                 thumbnail: item.videoThumbnails?.[0]?.url ||
+                 item.thumbnail ||
+                 `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
                 };
             });
+
             results[cat.id] = { title: cat.title, songs };
         } catch (error) {
             console.error(`❌ Error en categoría ${cat.id}:`, error.message);
@@ -234,10 +337,15 @@ app.get('/api/random-artists', async (req, res) => {
     console.log(`🎲 Buscando artistas aleatorios con: "${randomTerm}"`);
 
     try {
-        const data = await fetchFromPiped(`/search?q=${encodeURIComponent(randomTerm)}&filter=music_songs`);
+        let items;
+        try {
+            items = await searchInvidious(randomTerm);
+        } catch (e) {
+            items = await searchPiped(randomTerm);
+        }
 
-        const artists = (data.items || [])
-        .map(item => item.uploaderName || item.uploader)
+        const artists = items
+        .map(item => item.author || item.uploaderName || item.uploader)
         .filter(name => name && name.length > 2 && !name.includes('Topic') && !name.includes('VEVO'))
         .filter((name, index, self) => self.indexOf(name) === index);
 
@@ -248,7 +356,7 @@ app.get('/api/random-artists', async (req, res) => {
         res.json(selected);
     } catch (error) {
         console.error('❌ Error buscando artistas:', error.message);
-        // Devolver artistas de fallback
+        // Fallback con artistas conocidos
         res.json(['Bad Bunny', 'Duki', 'Feid', 'Shakira', 'Karol G']);
     }
 });
@@ -267,17 +375,42 @@ app.get('/api/stream', async (req, res) => {
     console.log(`▶️ Obteniendo stream para: ${id}`);
 
     try {
-        const videoData = await fetchFromPiped(`/streams/${id}`);
+        let streamUrl = null;
 
-        const audioStreams = (videoData.audioStreams || [])
-        .filter(s => s.mimeType && s.mimeType.includes('audio'))
-        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+        // Intentar con Invidious
+        try {
+            const videoData = await getVideoInfoInvidious(id);
+            const adaptiveFormats = (videoData.adaptiveFormats || [])
+            .filter(f => f.type && f.type.includes('audio'))
+            .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
-        if (audioStreams.length === 0) {
-            throw new Error('No audio streams found');
+            if (adaptiveFormats.length > 0) {
+                streamUrl = adaptiveFormats[0].url;
+            }
+        } catch (e) {
+            console.log('️ Invidious stream falló, probando Piped...');
         }
 
-        const streamUrl = audioStreams[0].url;
+        // Fallback a Piped
+        if (!streamUrl) {
+            try {
+                const videoData = await getVideoInfoPiped(id);
+                const audioStreams = (videoData.audioStreams || [])
+                .filter(s => s.mimeType && s.mimeType.includes('audio'))
+                .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+                if (audioStreams.length > 0) {
+                    streamUrl = audioStreams[0].url;
+                }
+            } catch (e) {
+                console.log('️ Piped stream también falló');
+            }
+        }
+
+        if (!streamUrl) {
+            throw new Error('No se pudo obtener stream de audio');
+        }
+
         console.log(`✅ Stream obtenido`);
         res.redirect(302, streamUrl);
     } catch (error) {
@@ -304,10 +437,10 @@ app.get('/api/health', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`
-    ╔══════════════════════════════════════╗
+    ══════════════════════════════════════╗
     ║   🎵 MANUEL MUSIC SERVER            ║
     ║                                      ║
-    ║   🌐 Local: http://localhost:${PORT}  ║
+    ║    Local: http://localhost:${PORT}  ║
     ║   Estado: ✅ Activo                  ║
     ╚══════════════════════════════════════╝
     `);
