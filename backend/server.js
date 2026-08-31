@@ -1,5 +1,5 @@
 // ========================================
-// 🎵 MANUEL MUSIC - CON YT-SEARCH + YTDLCORE
+// 🎵 MANUEL MUSIC - VERSIÓN ROBUSTA
 // ========================================
 
 const express = require('express');
@@ -34,7 +34,7 @@ app.get('/', (req, res) => {
 });
 
 // ========================================
-// API: BUSCAR CANCIONES
+// API: BUSCAR CANCIONES (con filtrado)
 // ========================================
 
 app.get('/api/search', async (req, res) => {
@@ -48,24 +48,32 @@ app.get('/api/search', async (req, res) => {
     try {
         const r = await yts({ query, video: true });
 
-        const results = r.videos.slice(0, 50).map(video => ({
+        // Filtrar videos válidos (no eliminados, no privados)
+        const validVideos = r.videos.filter(video =>
+        video.videoId &&
+        video.title &&
+        video.seconds > 0 &&
+        video.seconds < 36000 // Menos de 10 horas
+        );
+
+        const results = validVideos.slice(0, 50).map(video => ({
             id: video.videoId,
             title: String(video.title || 'Sin título'),
-                                                            duration: formatDuration(video.seconds),
-                                                            uploader: String(video.author?.name || video.author || 'Artista desconocido'),
-                                                            thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`
+                                                               duration: formatDuration(video.seconds),
+                                                               uploader: String(video.author?.name || video.author || 'Artista desconocido'),
+                                                               thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`
         }));
 
-        console.log(`✅ Encontradas ${results.length} canciones`);
+        console.log(`✅ Encontradas ${results.length} canciones válidas`);
         res.json(results);
     } catch (error) {
-        console.error('❌ Error en búsqueda:', error.message);
+        console.error(' Error en búsqueda:', error.message);
         res.status(500).json({ error: 'Error en la búsqueda', details: error.message });
     }
 });
 
 // ========================================
-// API: DESCARGAR CANCIÓN
+// API: DESCARGAR CANCIÓN (con múltiples intentos)
 // ========================================
 
 app.post('/api/download', async (req, res) => {
@@ -79,13 +87,20 @@ app.post('/api/download', async (req, res) => {
     console.log(`️ Descargando: "${safeTitle}"`);
 
     try {
-        const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`);
+        // Intentar obtener info del video
+        const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`, {
+            quality: 'highestaudio'
+        });
 
-        // Buscar stream de audio de mejor calidad
-        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+        // Filtrar formatos de audio válidos
+        const audioFormats = info.formats.filter(format =>
+        format.hasAudio &&
+            !format.hasVideo &&
+            format.url
+        );
 
         if (audioFormats.length === 0) {
-            throw new Error('No se encontraron formatos de audio');
+            throw new Error('No se encontraron formatos de audio válidos');
         }
 
         // Ordenar por bitrate y tomar el mejor
@@ -100,7 +115,10 @@ app.post('/api/download', async (req, res) => {
     } catch (error) {
         console.error('❌ Error en descarga:', error.message);
         if (!res.headersSent) {
-            res.status(500).json({ error: error.message });
+            res.status(500).json({
+                error: 'No se pudo descargar esta canción',
+                details: error.message
+            });
         }
     }
 });
@@ -111,12 +129,12 @@ app.post('/api/download', async (req, res) => {
 
 app.get('/api/recommended', async (req, res) => {
     const categories = [
-        { id: 'tendencias', title: ' Tendencias', query: 'top hits 2024' },
+        { id: 'tendencias', title: '🔥 Tendencias', query: 'top hits 2024' },
         { id: 'clasicos', title: '🎸 Clásicos', query: 'rock classics greatest hits' },
-        { id: 'lofi', title: ' Lo-Fi & Chill', query: 'lo-fi hip hop beats' },
+        { id: 'lofi', title: '🎧 Lo-Fi & Chill', query: 'lo-fi hip hop beats' },
         { id: 'reggaeton', title: '💃 Reggaeton', query: 'reggaeton hits' },
         { id: 'pop', title: '🎵 Pop Internacional', query: 'pop hits international' },
-        { id: 'electro', title: '⚡ Electrónica', query: 'electronic dance music' }
+        { id: 'electro', title: ' Electrónica', query: 'electronic dance music' }
     ];
 
     const results = {};
@@ -125,17 +143,25 @@ app.get('/api/recommended', async (req, res) => {
         try {
             const r = await yts({ query: cat.query, video: true });
 
-            const songs = r.videos.slice(0, 15).map(video => ({
+            // Filtrar videos válidos
+            const validVideos = r.videos.filter(video =>
+            video.videoId &&
+            video.title &&
+            video.seconds > 0 &&
+            video.seconds < 36000
+            );
+
+            const songs = validVideos.slice(0, 15).map(video => ({
                 id: video.videoId,
                 title: String(video.title || 'Sin título'),
-                                                              duration: formatDuration(video.seconds),
-                                                              uploader: String(video.author?.name || video.author || 'Artista'),
-                                                              thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`
+                                                                 duration: formatDuration(video.seconds),
+                                                                 uploader: String(video.author?.name || video.author || 'Artista'),
+                                                                 thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`
             }));
 
             results[cat.id] = { title: cat.title, songs };
         } catch (error) {
-            console.error(` Error en categoría ${cat.id}:`, error.message);
+            console.error(`❌ Error en categoría ${cat.id}:`, error.message);
             results[cat.id] = { title: cat.title, songs: [] };
         }
     });
@@ -180,7 +206,7 @@ app.get('/api/random-artists', async (req, res) => {
 });
 
 // ========================================
-// API: STREAMING DE AUDIO
+// API: STREAMING DE AUDIO (con múltiples intentos)
 // ========================================
 
 app.get('/api/stream', async (req, res) => {
@@ -193,10 +219,22 @@ app.get('/api/stream', async (req, res) => {
     console.log(`▶️ Obteniendo stream para: ${id}`);
 
     try {
-        const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`);
+        // Intentar obtener info del video con timeout
+        const info = await Promise.race([
+            ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`, {
+                quality: 'highestaudio'
+            }),
+            new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout')), 10000)
+            )
+        ]);
 
-        // Buscar stream de audio
-        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+        // Filtrar formatos de audio válidos
+        const audioFormats = info.formats.filter(format =>
+        format.hasAudio &&
+            !format.hasVideo &&
+            format.url
+        );
 
         if (audioFormats.length === 0) {
             throw new Error('No se encontró stream de audio');
@@ -210,7 +248,10 @@ app.get('/api/stream', async (req, res) => {
         res.redirect(302, streamUrl);
     } catch (error) {
         console.error('❌ Error obteniendo stream:', error.message);
-        res.status(500).json({ error: 'No se pudo obtener el stream' });
+        res.status(500).json({
+            error: 'No se pudo reproducir esta canción',
+            details: error.message
+        });
     }
 });
 
@@ -233,9 +274,9 @@ app.get('/api/health', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`
     ╔══════════════════════════════════════╗
-    ║    MANUEL MUSIC SERVER            ║
-    ║
-    ║   🌐 Local: http://localhost:${PORT}  ║
+    ║   🎵 MANUEL MUSIC SERVER            ║
+    ║                                      ║
+    ║    Local: http://localhost:${PORT}  ║
     ║   Estado: ✅ Activo                  ║
     ╚══════════════════════════════════════╝
     `);
