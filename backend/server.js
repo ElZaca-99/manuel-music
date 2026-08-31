@@ -1,16 +1,56 @@
 // ========================================
-// 🎵 MANUEL MUSIC - SERVIDOR PRINCIPAL
-// Versión: 8.0 - Búsqueda mejorada (~200 canciones)
+// 🎵 MANUEL MUSIC - SERVIDOR CON API PIPED
 // ========================================
 
 const express = require('express');
 const cors = require('cors');
-const { exec } = require('child_process');
 const path = require('path');
-const fs = require('fs');
+const https = require('https');
 
 const app = express();
-const PORT = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3000;
+
+// Instancia de Piped (puedes cambiar si una cae)
+const PIPED_INSTANCES = [
+    'https://pipedapi.kavin.rocks',
+'https://pipedapi.adminforge.de',
+'https://pipedapi.in.projectsegfau.lt',
+'https://api.piped.yt'
+];
+
+function getPipedInstance() {
+    return PIPED_INSTANCES[Math.floor(Math.random() * PIPED_INSTANCES.length)];
+}
+
+// Función helper para hacer peticiones HTTPS
+function fetchFromPiped(urlPath) {
+    return new Promise((resolve, reject) => {
+        const instance = getPipedInstance();
+        const url = `${instance}${urlPath}`;
+
+        https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                } catch (e) {
+                    reject(new Error('JSON inválido de Piped'));
+                }
+            });
+        }).on('error', reject);
+    });
+}
+
+// Función para formatear duración
+function formatDuration(seconds) {
+    if (!seconds || isNaN(seconds)) return '0:00';
+    const num = parseInt(seconds);
+    if (isNaN(num)) return '0:00';
+    const mins = Math.floor(num / 60);
+    const secs = num % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
 
 // ========================================
 // CONFIGURACIÓN
@@ -21,90 +61,48 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use(express.static(path.join(__dirname, '../public')));
 
-// ========================================
-// RUTA PRINCIPAL
-// ========================================
-
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
 
 // ========================================
-// FUNCIÓN AUXILIAR: Formatear duración
+// API: BUSCAR CANCIONES
 // ========================================
 
-function formatDuration(seconds) {
-    if (!seconds || isNaN(seconds) || seconds === 'None' || seconds === 'null') return '0:00';
-    const num = parseInt(seconds);
-    if (isNaN(num)) return '0:00';
-    const mins = Math.floor(num / 60);
-    const secs = num % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-// ========================================
-// API: BUSCAR CANCIONES (~200 resultados)
-// ========================================
-
-app.get('/api/search', (req, res) => {
+app.get('/api/search', async (req, res) => {
     const query = req.query.q;
-
     if (!query || query.trim() === '') {
         return res.status(400).json({ error: 'Falta el término de búsqueda' });
     }
 
     console.log(`🔍 Buscando: "${query}"`);
 
-    // 3 búsquedas diferentes para maximizar resultados únicos
-    const searches = [
-        `ytsearch100:${query}`,
-        `ytsearch50:${query} official`,
-        `ytsearch50:${query} video`
-    ];
+    try {
+        const data = await fetchFromPiped(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
 
-    let completed = 0;
-    const allResults = [];
-    const seenIds = new Set();
-
-    searches.forEach(searchQuery => {
-        const cmd = `yt-dlp --flat-playlist --print "%(id)s|%(title)s|%(duration)s|%(uploader)s" "${searchQuery}"`;
-
-        exec(cmd, { timeout: 25000, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
-            if (!error && stdout.trim()) {
-                const results = stdout.trim().split('\n')
-                .filter(line => line.trim() !== '')
-                .map(line => {
-                    const parts = line.split('|');
-                    const id = parts[0] || '';
-                    return {
-                        id: id,
-                        title: parts[1] || 'Sin título',
-                        duration: formatDuration(parts[2] || '0'),
-                     uploader: parts[3] || 'Artista desconocido',
-                     thumbnail: id.length === 11 ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : ''
-                    };
-                });
-
-                // Añadir solo los que no hemos visto antes
-                results.forEach(song => {
-                    if (song.id && !seenIds.has(song.id)) {
-                        seenIds.add(song.id);
-                        allResults.push(song);
-                    }
-                });
-            }
-
-            completed++;
-            if (completed === searches.length) {
-                console.log(`✅ Encontradas ${allResults.length} canciones únicas`);
-                res.json(allResults);
-            }
+        const results = (data.items || [])
+        .filter(item => item.type === 'stream' && item.url)
+        .map(item => {
+            const videoId = item.url.replace('/watch?v=', '');
+            return {
+                id: videoId,
+                title: item.title || 'Sin título',
+                duration: formatDuration(item.duration),
+             uploader: item.uploaderName || item.uploader || 'Artista desconocido',
+             thumbnail: item.thumbnail || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+            };
         });
-    });
+
+        console.log(`✅ Encontradas ${results.length} canciones`);
+        res.json(results);
+    } catch (error) {
+        console.error('❌ Error en búsqueda:', error.message);
+        res.status(500).json({ error: 'Error en la búsqueda', details: error.message });
+    }
 });
 
 // ========================================
-// API: DESCARGAR CANCIÓN
+// API: DESCARGAR CANCIÓN (vía Piped proxy)
 // ========================================
 
 app.post('/api/download', async (req, res) => {
@@ -114,50 +112,30 @@ app.post('/api/download', async (req, res) => {
         return res.status(400).json({ error: 'Falta el ID del video' });
     }
 
-    const videoUrl = `https://www.youtube.com/watch?v=${id}`;
     const safeTitle = title.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s]/g, '').substring(0, 200).trim();
-
     console.log(`⬇️ Descargando: "${safeTitle}"`);
 
     try {
-        const tempFile = `/tmp/manuel_music_${Date.now()}.mp3`;
+        // Obtener info del video desde Piped
+        const videoData = await fetchFromPiped(`/streams/${id}`);
 
-        const cmd = `yt-dlp -f "bestaudio/best" --extract-audio --audio-format mp3 --audio-quality 0 --embed-thumbnail --add-metadata -o "${tempFile}" "${videoUrl}"`;
+        // Buscar el stream de audio
+        const audioStreams = (videoData.audioStreams || [])
+        .filter(s => s.mimeType && s.mimeType.includes('audio'))
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
-        await new Promise((resolve, reject) => {
-            exec(cmd, { timeout: 120000, maxBuffer: 1024 * 1024 * 100 }, (error, stdout, stderr) => {
-                if (error) {
-                    console.error('❌ Error yt-dlp:', stderr);
-                    reject(new Error('Error al descargar'));
-                } else {
-                    console.log('✅ Descarga completada en temporal');
-                    resolve();
-                }
-            });
-        });
-
-        const stats = fs.statSync(tempFile);
-        if (stats.size < 1000) {
-            throw new Error('Archivo demasiado pequeño');
+        if (audioStreams.length === 0) {
+            throw new Error('No se encontraron streams de audio');
         }
 
+        const audioUrl = audioStreams[0].url;
+
+        // Redirigir al stream de audio
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp3"`);
-        res.setHeader('Content-Length', stats.size);
+        res.redirect(302, audioUrl);
 
-        const fileStream = fs.createReadStream(tempFile);
-        fileStream.pipe(res);
-
-        fileStream.on('end', () => {
-            fs.unlinkSync(tempFile);
-            console.log(`️ Temporal eliminado: ${safeTitle}`);
-        });
-
-        fileStream.on('error', (err) => {
-            console.error('❌ Error leyendo archivo:', err);
-            fs.unlinkSync(tempFile);
-        });
-
+        console.log(`✅ Descarga iniciada: ${safeTitle}`);
     } catch (error) {
         console.error('❌ Error en descarga:', error.message);
         if (!res.headersSent) {
@@ -167,60 +145,52 @@ app.post('/api/download', async (req, res) => {
 });
 
 // ========================================
-// API: MÚSICA RECOMENDADA (15 por categoría)
+// API: MÚSICA RECOMENDADA
 // ========================================
 
-app.get('/api/recommended', (req, res) => {
+app.get('/api/recommended', async (req, res) => {
     const categories = [
         { id: 'tendencias', title: '🔥 Tendencias', query: 'top hits 2024' },
         { id: 'clasicos', title: '🎸 Clásicos', query: 'rock classics greatest hits' },
         { id: 'lofi', title: '🎧 Lo-Fi & Chill', query: 'lo-fi hip hop beats' },
         { id: 'reggaeton', title: '💃 Reggaeton', query: 'reggaeton hits' },
-        { id: 'pop', title: ' Pop Internacional', query: 'pop hits international' },
-        { id: 'electro', title: '⚡ Electrónica', query: 'electronic dance music' }
+        { id: 'pop', title: '🎵 Pop Internacional', query: 'pop hits international' },
+        { id: 'electro', title: ' Electrónica', query: 'electronic dance music' }
     ];
 
-    let completed = 0;
     const results = {};
 
-    categories.forEach(cat => {
-        const cmd = `yt-dlp --flat-playlist --print "%(id)s|%(title)s|%(duration)s|%(uploader)s" "ytsearch15:${cat.query}"`;
-
-        exec(cmd, { timeout: 20000, maxBuffer: 1024 * 1024 * 5 }, (error, stdout, stderr) => {
-            if (error) {
-                results[cat.id] = { title: cat.title, songs: [] };
-            } else {
-                const songs = stdout.trim().split('\n')
-                .filter(line => line.trim())
-                .map(line => {
-                    const parts = line.split('|');
-                    const id = parts[0] || '';
-                    return {
-                        id: id,
-                        title: parts[1] || 'Sin título',
-                        duration: formatDuration(parts[2] || '0'),
-                     uploader: parts[3] || 'Artista',
-                     thumbnail: id.length === 11 ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : ''
-                    };
-                });
-                results[cat.id] = { title: cat.title, songs };
-            }
-
-            completed++;
-            if (completed === categories.length) {
-                const ordered = {};
-                categories.forEach(cat => { ordered[cat.id] = results[cat.id]; });
-                res.json(ordered);
-            }
-        });
+    const promises = categories.map(async (cat) => {
+        try {
+            const data = await fetchFromPiped(`/search?q=${encodeURIComponent(cat.query)}&filter=music_songs`);
+            const songs = (data.items || [])
+            .filter(item => item.type === 'stream' && item.url)
+            .slice(0, 15)
+            .map(item => {
+                const videoId = item.url.replace('/watch?v=', '');
+                return {
+                    id: videoId,
+                    title: item.title || 'Sin título',
+                    duration: formatDuration(item.duration),
+                 uploader: item.uploaderName || 'Artista',
+                 thumbnail: item.thumbnail || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+                };
+            });
+            results[cat.id] = { title: cat.title, songs };
+        } catch (error) {
+            results[cat.id] = { title: cat.title, songs: [] };
+        }
     });
+
+    await Promise.all(promises);
+    res.json(results);
 });
 
 // ========================================
-// API: ARTISTAS ALEATORIOS (desde YouTube)
+// API: ARTISTAS ALEATORIOS
 // ========================================
 
-app.get('/api/random-artists', (req, res) => {
+app.get('/api/random-artists', async (req, res) => {
     const searchTerms = [
         'top artists 2024',
         'most popular singers',
@@ -230,20 +200,13 @@ app.get('/api/random-artists', (req, res) => {
     ];
 
     const randomTerm = searchTerms[Math.floor(Math.random() * searchTerms.length)];
-
     console.log(`🎲 Buscando artistas aleatorios con: "${randomTerm}"`);
 
-    const cmd = `yt-dlp --flat-playlist --print "%(uploader)s" "ytsearch30:${randomTerm}"`;
+    try {
+        const data = await fetchFromPiped(`/search?q=${encodeURIComponent(randomTerm)}&filter=music_songs`);
 
-    exec(cmd, { timeout: 20000, maxBuffer: 1024 * 1024 * 5 }, (error, stdout, stderr) => {
-        if (error) {
-            console.error('❌ Error buscando artistas:', error.message);
-            return res.status(500).json({ error: 'Error al obtener artistas' });
-        }
-
-        const artists = stdout.trim()
-        .split('\n')
-        .map(name => name.trim())
+        const artists = (data.items || [])
+        .map(item => item.uploaderName || item.uploader)
         .filter(name => name && name.length > 2 && !name.includes('Topic') && !name.includes('VEVO'))
         .filter((name, index, self) => self.indexOf(name) === index);
 
@@ -252,40 +215,43 @@ app.get('/api/random-artists', (req, res) => {
 
         console.log(`✅ Artistas aleatorios: ${selected.join(', ')}`);
         res.json(selected);
-    });
+    } catch (error) {
+        console.error('❌ Error buscando artistas:', error.message);
+        res.status(500).json({ error: 'Error al obtener artistas' });
+    }
 });
 
 // ========================================
 // API: STREAMING DE AUDIO
 // ========================================
 
-app.get('/api/stream', (req, res) => {
+app.get('/api/stream', async (req, res) => {
     const { id } = req.query;
 
     if (!id || id.length !== 11) {
         return res.status(400).json({ error: 'ID de video inválido' });
     }
 
-    const videoUrl = `https://www.youtube.com/watch?v=${id}`;
-
     console.log(`▶️ Obteniendo stream para: ${id}`);
 
-    const cmd = `yt-dlp -f "bestaudio" --get-url "${videoUrl}"`;
+    try {
+        const videoData = await fetchFromPiped(`/streams/${id}`);
 
-    exec(cmd, { timeout: 15000 }, (error, stdout, stderr) => {
-        if (error) {
-            console.error('❌ Error obteniendo stream:', stderr);
-            return res.status(500).json({ error: 'No se pudo obtener el stream' });
+        const audioStreams = (videoData.audioStreams || [])
+        .filter(s => s.mimeType && s.mimeType.includes('audio'))
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+        if (audioStreams.length === 0) {
+            throw new Error('No audio streams found');
         }
 
-        const streamUrl = stdout.trim();
-        if (!streamUrl) {
-            return res.status(500).json({ error: 'URL de stream vacía' });
-        }
-
+        const streamUrl = audioStreams[0].url;
         console.log(`✅ Stream obtenido`);
         res.redirect(302, streamUrl);
-    });
+    } catch (error) {
+        console.error('❌ Error obteniendo stream:', error.message);
+        res.status(500).json({ error: 'No se pudo obtener el stream' });
+    }
 });
 
 // ========================================
@@ -310,8 +276,6 @@ app.listen(PORT, '0.0.0.0', () => {
     ║   🎵 MANUEL MUSIC SERVER            ║
     ║                                      ║
     ║   🌐 Local: http://localhost:${PORT}  ║
-    ║   📱 Red:   http://TU_IP:${PORT}      ║
-    ║                                      ║
     ║   Estado: ✅ Activo                  ║
     ╚══════════════════════════════════════╝
     `);
