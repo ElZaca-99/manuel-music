@@ -13,11 +13,12 @@ const PORT = process.env.PORT || 3000;
 // Instancia de Piped (puedes cambiar si una cae)
 const PIPED_INSTANCES = [
     'https://pipedapi.kavin.rocks',
-'https://pipedapi.adminforge.de',
-'https://pipedapi.in.projectsegfau.lt',
-'https://api.piped.yt'
+    'https://pipedapi.adminforge.de',
+    'https://pipedapi.in.projectsegfau.lt',
+    'https://pipedapi.mha.fi',
+    'https://api.piped.materials.cloud',
+    'https://pipedapi.ducks.party'
 ];
-
 function getPipedInstance() {
     return PIPED_INSTANCES[Math.floor(Math.random() * PIPED_INSTANCES.length)];
 }
