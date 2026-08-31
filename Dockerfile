@@ -2,15 +2,14 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copiar e instalar dependencias del backend
-COPY backend/package*.json ./backend/
+# Copiar TODO el proyecto primero
+COPY . .
+
+# Instalar dependencias del backend
 RUN cd backend && npm install --production
 
-# Copiar código
-COPY backend/ ./backend/
-COPY frontend/ ./frontend/
-COPY public/ ./public/
-
+# Puerto
 EXPOSE 3000
 
+# Comando de inicio
 CMD ["node", "backend/server.js"]
