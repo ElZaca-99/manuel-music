@@ -1,6 +1,6 @@
 // ========================================
-// 🎵 MANUEL MUSIC - APLICACIÓN COMPLETA (MODO DUAL)
-// Versión: 10.1 - Paginación (150 canciones) + Solo Anterior/Siguiente
+// 🎵 MANUEL MUSIC - FRONTEND COMPLETO
+// Versión Final: Modo Dual + 150 canciones + Botones funcionales
 // ========================================
 
 const API_URL = window.location.origin;
@@ -42,7 +42,7 @@ const progressThumb = document.getElementById('progressThumb');
 const currentTimeEl = document.getElementById('currentTime');
 const totalTimeEl = document.getElementById('totalTime');
 
-// Playlist y control de reproducción
+// Playlist
 let playlist = [];
 let currentTrackIndex = -1;
 
@@ -72,7 +72,7 @@ async function detectMode() {
         : '💻 Modo Local: Descarga de MP3 disponible.';
 
         const container = document.querySelector('.main-container') || document.body;
-        container.insertBefore(downloadHint, container.firstChild);
+        if (container) container.insertBefore(downloadHint, container.firstChild);
     } catch (error) {
         console.error('Error detectando modo:', error);
     }
@@ -92,7 +92,7 @@ function setupEventListeners() {
         const logoBtn = document.getElementById('logoBtn');
         if (logoBtn) logoBtn.addEventListener('click', () => { window.location.href = '/'; });
 
-        // Controles del reproductor (Anterior / Siguiente / Play-Pause)
+        // Controles del reproductor
         prevBtn.addEventListener('click', playPrevious);
         nextBtn.addEventListener('click', playNext);
         playPauseBtn.addEventListener('click', togglePlayPause);
@@ -113,7 +113,7 @@ function setupEventListeners() {
 
         volumeSlider.addEventListener('input', (e) => {
             audioPlayer.volume = e.target.value / 100;
-            volumeBtn.textContent = audioPlayer.volume === 0 ? '🔇' : audioPlayer.volume < 0.5 ? '🔉' : '🔊';
+            volumeBtn.textContent = audioPlayer.volume === 0 ? '🔇' : audioPlayer.volume < 0.5 ? '🔉' : '';
         });
 
         // Barra de progreso
@@ -181,7 +181,7 @@ function checkUrlForSearch() {
 }
 
 // ========================================
-// ARTISTAS ALEATORIOS Y RECOMENDADOS
+// ARTISTAS ALEATORIOS
 // ========================================
 
 async function loadRandomArtists() {
@@ -211,6 +211,10 @@ function renderQuickSearchButtons(artists) {
     });
 }
 
+// ========================================
+// MÚSICA RECOMENDADA
+// ========================================
+
 async function loadRecommended() {
     const container = document.getElementById('recommendedContainer');
     const loading = document.getElementById('recommendedLoading');
@@ -228,7 +232,7 @@ async function loadRecommended() {
         });
     } catch (error) {
         console.error('Error cargando recomendaciones:', error);
-        loading.innerHTML = '<p class="error-text">Error al cargar</p>';
+        if (loading) loading.innerHTML = '<p class="error-text">Error al cargar</p>';
     }
 }
 
@@ -276,8 +280,8 @@ async function performSearch(queryFromUrl = null) {
         window.history.pushState({ search: query }, '', `${window.location.pathname}?q=${encodeURIComponent(query)}`);
     }
 
-    recommendedSection.style.display = 'none';
-    resultsSection.style.display = 'block';
+    if (recommendedSection) recommendedSection.style.display = 'none';
+    if (resultsSection) resultsSection.style.display = 'block';
     showLoading();
     searchBtn.disabled = true;
 
@@ -307,31 +311,32 @@ function handlePopState(event) {
 
 function resetToInitialState() {
     searchInput.value = '';
-    initialState.style.display = 'block';
-    loadingState.style.display = 'none';
-    errorState.style.display = 'none';
-    resultsGrid.innerHTML = '';
-    resultsTitle.textContent = 'Resultados';
-    resultsCount.textContent = '';
+    if (initialState) initialState.style.display = 'block';
+    if (loadingState) loadingState.style.display = 'none';
+    if (errorState) errorState.style.display = 'none';
+    if (resultsGrid) resultsGrid.innerHTML = '';
+    if (resultsTitle) resultsTitle.textContent = 'Resultados';
+    if (resultsCount) resultsCount.textContent = '';
     window.history.replaceState({}, '', window.location.pathname);
-    recommendedSection.style.display = 'block';
-    resultsSection.style.display = 'none';
-    if (document.getElementById('recommendedContainer')?.children.length === 0) loadRecommended();
+    if (recommendedSection) recommendedSection.style.display = 'block';
+    if (resultsSection) resultsSection.style.display = 'none';
+    const recContainer = document.getElementById('recommendedContainer');
+    if (recContainer && recContainer.children.length === 0) loadRecommended();
 }
 
 function displayResults(songs, query) {
-    initialState.style.display = 'none';
-    loadingState.style.display = 'none';
-    errorState.style.display = 'none';
-    resultsTitle.textContent = 'Resultados';
-    resultsCount.textContent = `${songs.length} canciones`;
-    resultsGrid.innerHTML = '';
+    if (initialState) initialState.style.display = 'none';
+    if (loadingState) loadingState.style.display = 'none';
+    if (errorState) errorState.style.display = 'none';
+    if (resultsTitle) resultsTitle.textContent = 'Resultados';
+    if (resultsCount) resultsCount.textContent = `${songs.length} canciones`;
+    if (resultsGrid) resultsGrid.innerHTML = '';
 
     playlist = [...songs];
     currentTrackIndex = -1;
 
     songs.forEach((song, index) => {
-        resultsGrid.appendChild(createSongCard(song, index));
+        if (resultsGrid) resultsGrid.appendChild(createSongCard(song, index));
     });
 }
 
@@ -375,12 +380,14 @@ function getFallbackThumbnail() {
 // ========================================
 
 async function playPreview(id, title, artist, thumbnail) {
-    if (!id || id.length !== 11) { showNotification('❌ ID de video inválido', 'error'); return; }
+    if (!id || id.length !== 11) { showNotification(' ID de video inválido', 'error'); return; }
 
-    player.style.display = 'block';
-    playerThumbnail.src = thumbnail;
-    playerTitle.textContent = title;
-    playerArtist.textContent = artist;
+    if (player) {
+        player.style.display = 'block';
+        if (playerThumbnail) playerThumbnail.src = thumbnail;
+        if (playerTitle) playerTitle.textContent = title;
+        if (playerArtist) playerArtist.textContent = artist;
+    }
 
     try {
         const response = await fetch(`${API_URL}/api/stream?id=${id}`);
@@ -388,8 +395,11 @@ async function playPreview(id, title, artist, thumbnail) {
             const data = await response.json();
             if (data.type === 'youtube') {
                 showYouTubePlayer(data.embedUrl, title);
+                const trackIndex = playlist.findIndex(track => track.id === id);
+                if (trackIndex !== -1) currentTrackIndex = trackIndex;
                 isPlaying = true;
-                playPauseBtn.textContent = '⏸️';
+                if (playPauseBtn) playPauseBtn.textContent = '⏸️';
+                showNotification(`▶️ Reproduciendo: ${title}`, 'info');
                 return;
             }
         }
@@ -398,7 +408,7 @@ async function playPreview(id, title, artist, thumbnail) {
         audioPlayer.src = `${API_URL}/api/stream?id=${id}`;
         await audioPlayer.play();
         isPlaying = true;
-        playPauseBtn.textContent = '⏸️';
+        if (playPauseBtn) playPauseBtn.textContent = '⏸️';
 
         const trackIndex = playlist.findIndex(track => track.id === id);
         if (trackIndex !== -1) currentTrackIndex = trackIndex;
@@ -411,55 +421,90 @@ async function playPreview(id, title, artist, thumbnail) {
 }
 
 function showYouTubePlayer(embedUrl, title) {
-    let ytContainer = document.getElementById('youtubePlayerContainer');
+    let ytContainer = document.getElementById('youtubePlayerInline');
     if (!ytContainer) {
         ytContainer = document.createElement('div');
-        ytContainer.id = 'youtubePlayerContainer';
-        ytContainer.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:9999; display:flex; justify-content:center; align-items:center;';
-        ytContainer.innerHTML = `
-        <div style="position:relative; width:90%; max-width:800px; aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
-        <button onclick="closeYouTubePlayer()" style="position:absolute; top:10px; right:10px; background:rgba(255,255,255,0.2); border:none; color:white; width:36px; height:36px; border-radius:50%; font-size:20px; cursor:pointer; z-index:10; display:flex; align-items:center; justify-content:center;">✕</button>
-        <iframe id="youtubeIframe" width="100%" height="100%" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-        </div>
-        `;
-        document.body.appendChild(ytContainer);
+        ytContainer.id = 'youtubePlayerInline';
+        ytContainer.style.cssText = 'width:100%; height:200px; position:absolute; top:0; left:0; border-radius:8px; overflow:hidden; background:#000;';
+
+        const playerControls = document.querySelector('.player-controls');
+        if (playerControls && playerControls.parentNode) {
+            playerControls.parentNode.insertBefore(ytContainer, playerControls);
+        } else if (player) {
+            player.appendChild(ytContainer);
+        }
     }
-    document.getElementById('youtubeIframe').src = embedUrl;
-    ytContainer.style.display = 'flex';
+
+    ytContainer.innerHTML = `
+    <iframe
+    id="youtubeIframeInline"
+    width="100%"
+    height="100%"
+    src="${embedUrl}&autoplay=1&controls=1&modestbranding=1&rel=0"
+    frameborder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+    allowfullscreen
+    style="width:100%; height:100%; border:none;">
+    </iframe>
+    `;
+
+    ytContainer.style.display = 'block';
+    if (player) player.classList.add('has-youtube');
 }
 
 function closeYouTubePlayer() {
-    const ytContainer = document.getElementById('youtubePlayerContainer');
+    const ytContainer = document.getElementById('youtubePlayerInline');
     if (ytContainer) {
-        document.getElementById('youtubeIframe').src = '';
+        ytContainer.innerHTML = '';
         ytContainer.style.display = 'none';
-        isPlaying = false;
-        playPauseBtn.textContent = '▶️';
     }
+
+    const ytModal = document.getElementById('youtubePlayerContainer');
+    if (ytModal) {
+        const iframe = document.getElementById('youtubeIframe');
+        if (iframe) iframe.src = '';
+        ytModal.style.display = 'none';
+    }
+
+    if (playerThumbnail) playerThumbnail.style.display = 'block';
+    if (player) player.classList.remove('has-youtube');
+    isPlaying = false;
+    if (playPauseBtn) playPauseBtn.textContent = '▶️';
 }
 
 // ========================================
-// CAMBIAR DE CANCIÓN (ANTERIOR / SIGUIENTE)
+// CAMBIAR DE CANCIÓN
 // ========================================
 
 function playNext() {
     if (playlist.length === 0) return;
+
     currentTrackIndex++;
     if (currentTrackIndex >= playlist.length) currentTrackIndex = 0;
+
     const track = playlist[currentTrackIndex];
-    if (track && track.id) playPreview(track.id, track.title, track.uploader, track.thumbnail);
+    if (track && track.id) {
+        closeYouTubePlayer();
+        playPreview(track.id, track.title, track.uploader, track.thumbnail);
+    }
 }
 
 function playPrevious() {
     if (playlist.length === 0) return;
-    if (audioPlayer.currentTime > 3) {
+
+    if (currentMode === 'local' && audioPlayer.currentTime > 3) {
         audioPlayer.currentTime = 0;
         return;
     }
+
     currentTrackIndex--;
     if (currentTrackIndex < 0) currentTrackIndex = playlist.length - 1;
+
     const track = playlist[currentTrackIndex];
-    if (track && track.id) playPreview(track.id, track.title, track.uploader, track.thumbnail);
+    if (track && track.id) {
+        closeYouTubePlayer();
+        playPreview(track.id, track.title, track.uploader, track.thumbnail);
+    }
 }
 
 // ========================================
@@ -480,7 +525,10 @@ async function downloadSong(id, title, artist, thumbnail) {
 function showFolderModal() {
     const modal = document.getElementById('folderModal');
     if (!modal) return;
-    if (localStorage.getItem('preferredDownloadFolder')) document.getElementById('rememberFolder').checked = true;
+    if (localStorage.getItem('preferredDownloadFolder')) {
+        const cb = document.getElementById('rememberFolder');
+        if (cb) cb.checked = true;
+    }
     modal.style.display = 'flex';
 }
 
@@ -493,7 +541,8 @@ function closeFolderModal() {
 async function confirmDownload() {
     if (!pendingDownload) return;
     const { id, title, artist, thumbnail, btn } = pendingDownload;
-    if (document.getElementById('rememberFolder')?.checked) localStorage.setItem('preferredDownloadFolder', 'custom');
+    const cb = document.getElementById('rememberFolder');
+    if (cb && cb.checked) localStorage.setItem('preferredDownloadFolder', 'custom');
     closeFolderModal();
 
     const originalText = btn.innerHTML;
@@ -536,18 +585,18 @@ async function confirmDownload() {
 // ========================================
 
 function togglePlayPause() {
-    if (!audioPlayer.src && !document.getElementById('youtubeIframe')?.src) return;
-    const ytIframe = document.getElementById('youtubeIframe');
+    const ytIframe = document.getElementById('youtubeIframeInline');
     if (ytIframe && ytIframe.src) {
         showNotification('Usa los controles del reproductor de YouTube para pausar', 'info');
         return;
     }
+    if (!audioPlayer.src) return;
     if (isPlaying) {
         audioPlayer.pause();
-        playPauseBtn.textContent = '▶️';
+        if (playPauseBtn) playPauseBtn.textContent = '▶️';
     } else {
         audioPlayer.play();
-        playPauseBtn.textContent = '⏸️';
+        if (playPauseBtn) playPauseBtn.textContent = '⏸️';
     }
     isPlaying = !isPlaying;
 }
@@ -561,9 +610,9 @@ function seekToPosition(e) {
 function updateProgress() {
     if (audioPlayer.duration && !isDragging) {
         const percent = (audioPlayer.currentTime / audioPlayer.duration) * 100;
-        progressFilled.style.width = `${percent}%`;
-        progressThumb.style.left = `${percent}%`;
-        currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
+        if (progressFilled) progressFilled.style.width = `${percent}%`;
+        if (progressThumb) progressThumb.style.left = `${percent}%`;
+        if (currentTimeEl) currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
     }
 }
 
@@ -575,13 +624,22 @@ function formatTime(seconds) {
 }
 
 function showLoading() {
-    initialState.style.display = 'none'; errorState.style.display = 'none'; resultsGrid.innerHTML = '';
-    loadingState.style.display = 'block'; resultsTitle.textContent = 'Buscando...'; resultsCount.textContent = '';
+    if (initialState) initialState.style.display = 'none';
+    if (errorState) errorState.style.display = 'none';
+    if (resultsGrid) resultsGrid.innerHTML = '';
+    if (loadingState) loadingState.style.display = 'block';
+    if (resultsTitle) resultsTitle.textContent = 'Buscando...';
+    if (resultsCount) resultsCount.textContent = '';
 }
 
 function showError(message) {
-    initialState.style.display = 'none'; loadingState.style.display = 'none'; resultsGrid.innerHTML = '';
-    errorState.style.display = 'block'; errorMessage.textContent = message; resultsTitle.textContent = 'Error'; resultsCount.textContent = '';
+    if (initialState) initialState.style.display = 'none';
+    if (loadingState) loadingState.style.display = 'none';
+    if (resultsGrid) resultsGrid.innerHTML = '';
+    if (errorState) errorState.style.display = 'block';
+    if (errorMessage) errorMessage.textContent = message;
+    if (resultsTitle) resultsTitle.textContent = 'Error';
+    if (resultsCount) resultsCount.textContent = '';
 }
 
 function showNotification(message, type = 'info') {
@@ -589,9 +647,10 @@ function showNotification(message, type = 'info') {
     notification.className = `notification ${type}`;
     const icons = { success: '✅', error: '❌', info: 'ℹ️' };
     notification.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${message}</span>`;
-    notifications.appendChild(notification);
+    if (notifications) notifications.appendChild(notification);
     setTimeout(() => {
-        notification.style.opacity = '0'; notification.style.transform = 'translateX(100%)';
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateX(100%)';
         setTimeout(() => { if (notification.parentNode) notification.remove(); }, 300);
     }, 4000);
 }

@@ -1,7 +1,6 @@
 // ========================================
-//  MANUEL MUSIC - MODO DUAL
-// - Nube: API oficial YouTube (búsqueda + embed)
-// - Local: yt-search + ytdl-core (búsqueda + stream + descarga)
+// 🎵 MANUEL MUSIC - BACKEND COMPLETO
+// Modo Dual: Nube (YouTube API) + Local (ytdl)
 // ========================================
 
 const express = require('express');
@@ -12,15 +11,13 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ========================================
-// ✅ API KEY DE YOUTUBE (ya configurada)
-// ========================================
+// API Key de YouTube Data API v3
 const YOUTUBE_API_KEY = 'AIzaSyAm-odRpno0G-Jq0WFzUez6IafzWe8RiPo';
 
-// Detectar si estamos en modo local o nube
+// Detectar modo
 const isLocal = process.env.NODE_ENV !== 'production';
 
-// Solo cargar yt-search y ytdl-core en modo local
+// Cargar librerías solo en local
 let yts, ytdl;
 if (isLocal) {
     try {
@@ -43,10 +40,7 @@ function formatDuration(seconds) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-// ========================================
-// MIDDLEWARE
-// ========================================
-
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend')));
@@ -57,7 +51,7 @@ app.get('/', (req, res) => {
 });
 
 // ========================================
-// API: BUSCAR CANCIONES (CON PAGINACIÓN HASTA 150)
+// API: BUSCAR CANCIONES (PAGINACIÓN HASTA 150)
 // ========================================
 
 app.get('/api/search', async (req, res) => {
@@ -72,7 +66,6 @@ app.get('/api/search', async (req, res) => {
         let results = [];
 
         if (isLocal && yts) {
-            // MODO LOCAL: yt-search devuelve lo que encuentre
             const r = await yts({ query, video: true });
             results = r.videos.map(video => ({
                 id: video.videoId,
@@ -83,7 +76,7 @@ app.get('/api/search', async (req, res) => {
                                              canDownload: true
             }));
         } else {
-            // MODO NUBE: API oficial de YouTube con paginación (hasta 150 resultados)
+            // Paginación: obtener hasta 150 resultados
             let nextPageToken = '';
             let totalFetched = 0;
             const MAX_RESULTS = 150;
@@ -109,7 +102,7 @@ app.get('/api/search', async (req, res) => {
             } while (nextPageToken && totalFetched < MAX_RESULTS);
         }
 
-        console.log(`✅ Encontradas ${results.length} canciones en total`);
+        console.log(`✅ Encontradas ${results.length} canciones`);
         res.json(results);
     } catch (error) {
         console.error('❌ Error en búsqueda:', error.response?.data || error.message);
@@ -129,7 +122,6 @@ app.get('/api/stream', async (req, res) => {
     }
 
     if (!isLocal || !ytdl) {
-        // En modo nube, devolver URL de embed de YouTube
         return res.json({
             type: 'youtube',
             url: `https://www.youtube.com/watch?v=${id}`,
@@ -140,23 +132,13 @@ app.get('/api/stream', async (req, res) => {
     console.log(`▶️ Obteniendo stream para: ${id}`);
 
     try {
-        const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`, {
-            quality: 'highestaudio'
-        });
+        const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`, { quality: 'highestaudio' });
+        const audioFormats = info.formats.filter(format => format.hasAudio && !format.hasVideo && format.url);
 
-        const audioFormats = info.formats.filter(format =>
-        format.hasAudio && !format.hasVideo && format.url
-        );
-
-        if (audioFormats.length === 0) {
-            throw new Error('No se encontró stream de audio');
-        }
+        if (audioFormats.length === 0) throw new Error('No se encontró stream de audio');
 
         audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
-        const streamUrl = audioFormats[0].url;
-
-        console.log(`✅ Stream obtenido`);
-        res.redirect(302, streamUrl);
+        res.redirect(302, audioFormats[0].url);
     } catch (error) {
         console.error('❌ Error obteniendo stream:', error.message);
         res.status(500).json({ error: 'No se pudo obtener el stream' });
@@ -175,41 +157,28 @@ app.post('/api/download', async (req, res) => {
     }
 
     if (!isLocal || !ytdl) {
-        return res.status(403).json({
-            error: 'La descarga solo está disponible en modo local',
-            message: 'Usa la app en tu PC para descargar música'
-        });
+        return res.status(403).json({ error: 'La descarga solo está disponible en modo local' });
     }
 
     const safeTitle = String(title || 'cancion').replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s]/g, '').substring(0, 200).trim();
     console.log(`⬇️ Descargando: "${safeTitle}"`);
 
     try {
-        const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`, {
-            quality: 'highestaudio'
-        });
+        const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${id}`, { quality: 'highestaudio' });
+        const audioFormats = info.formats.filter(format => format.hasAudio && !format.hasVideo && format.url);
 
-        const audioFormats = info.formats.filter(format =>
-        format.hasAudio && !format.hasVideo && format.url
-        );
-
-        if (audioFormats.length === 0) {
-            throw new Error('No se encontraron formatos de audio');
-        }
+        if (audioFormats.length === 0) throw new Error('No se encontraron formatos de audio');
 
         audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
-        const bestAudio = audioFormats[0];
 
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp3"`);
-        res.redirect(302, bestAudio.url);
+        res.redirect(302, audioFormats[0].url);
 
         console.log(`✅ Descarga iniciada: ${safeTitle}`);
     } catch (error) {
         console.error('❌ Error en descarga:', error.message);
-        if (!res.headersSent) {
-            res.status(500).json({ error: 'No se pudo descargar', details: error.message });
-        }
+        if (!res.headersSent) res.status(500).json({ error: 'No se pudo descargar', details: error.message });
     }
 });
 
@@ -220,7 +189,7 @@ app.post('/api/download', async (req, res) => {
 app.get('/api/recommended', async (req, res) => {
     const categories = [
         { id: 'tendencias', title: '🔥 Tendencias', query: 'top hits 2024' },
-        { id: 'clasicos', title: ' Clásicos', query: 'rock classics greatest hits' },
+        { id: 'clasicos', title: '🎸 Clásicos', query: 'rock classics greatest hits' },
         { id: 'lofi', title: '🎧 Lo-Fi & Chill', query: 'lo-fi hip hop beats' },
         { id: 'reggaeton', title: '💃 Reggaeton', query: 'reggaeton hits' },
         { id: 'pop', title: '🎵 Pop Internacional', query: 'pop hits international' },
@@ -274,12 +243,7 @@ app.get('/api/recommended', async (req, res) => {
 // ========================================
 
 app.get('/api/random-artists', async (req, res) => {
-    const searchTerms = [
-        'top artists 2024',
-        'most popular singers',
-        'best musicians worldwide'
-    ];
-
+    const searchTerms = ['top artists 2024', 'most popular singers', 'best musicians worldwide'];
     const randomTerm = searchTerms[Math.floor(Math.random() * searchTerms.length)];
     console.log(`🎲 Buscando artistas aleatorios con: "${randomTerm}"`);
 
@@ -304,10 +268,7 @@ app.get('/api/random-artists', async (req, res) => {
         }
 
         const shuffled = artists.sort(() => 0.5 - Math.random());
-        const selected = shuffled.slice(0, 5);
-
-        console.log(`✅ Artistas aleatorios: ${selected.join(', ')}`);
-        res.json(selected);
+        res.json(shuffled.slice(0, 5));
     } catch (error) {
         console.error('❌ Error buscando artistas:', error.message);
         res.json(['Bad Bunny', 'Duki', 'Feid', 'Shakira', 'Karol G']);
@@ -336,7 +297,6 @@ app.listen(PORT, '0.0.0.0', () => {
     ╔══════════════════════════════════════╗
     ║   🎵 MANUEL MUSIC SERVER            ║
     ║   Modo: ${isLocal ? 'LOCAL (con descarga)' : 'NUBE (solo stream)'}
-    ║                                      ║
     ║   🌐 Local: http://localhost:${PORT}  ║
     ║   Estado: ✅ Activo                  ║
     ╚══════════════════════════════════════╝
