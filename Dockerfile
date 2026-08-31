@@ -1,8 +1,8 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Copiar e instalar dependencias del backend (incluye yt-search)
+# Copiar e instalar dependencias del backend
 COPY backend/package*.json ./backend/
 RUN cd backend && npm install --production
 
