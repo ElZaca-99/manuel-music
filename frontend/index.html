@@ -11,7 +11,7 @@
 </head>
 
 <body>
-  <!-- CABECERA LIMPIA -->
+  <!-- CABECERA -->
   <header class="header">
     <div class="header-content">
       <div class="logo" id="logoBtn" style="cursor: pointer;" title="Ir al inicio">
@@ -51,7 +51,7 @@
     </section>
 
     <!-- RESULTADOS DE BÚSQUEDA -->
-    <section class="results-section" id="resultsSection">
+    <section class="results-section" id="resultsSection" style="display: none;">
       <div class="results-header">
         <h2 id="resultsTitle" class="section-title">Resultados</h2>
         <span id="resultsCount" class="results-count"></span>
@@ -70,15 +70,21 @@
       <div id="resultsGrid" class="results-grid"></div>
 
       <div id="errorState" class="error-state" style="display: none;">
-        <div class="error-icon">️</div>
+        <div class="error-icon">⚠️</div>
         <p id="errorMessage" class="error-text">Ha ocurrido un error</p>
       </div>
     </section>
   </main>
 
-  <!-- REPRODUCTOR ESTILO YOUTUBE -->
+  <!-- ======================================== -->
+  <!-- 🎵 REPRODUCTOR (Barra inferior) -->
+  <!-- ======================================== -->
   <div id="player" class="player-youtube" style="display: none;">
-    <!-- Barra de progreso roja arriba -->
+
+    <!-- Contenedor para el video de YouTube (se inyecta aquí si es modo nube) -->
+    <div id="youtubePlayerInline" style="display: none; width: 100%; height: 200px; background: #000;"></div>
+
+    <!-- Barra de progreso -->
     <div class="yt-progress-container" id="progressContainer">
       <div class="yt-progress-bar" id="progressBar">
         <div class="yt-progress-filled" id="progressFilled"></div>
@@ -86,31 +92,37 @@
       </div>
     </div>
 
-    <!-- Controles debajo -->
-    <div class="yt-controls">
-      <div class="yt-controls-left">
-        <button id="playPauseBtn" class="yt-btn" title="Reproducir/Pausar">▶️</button>
-        <button id="prevBtn" class="yt-btn" title="Anterior">⏮️</button>
-        <button id="nextBtn" class="yt-btn" title="Siguiente">⏭️</button>
-        <div class="yt-volume">
-          <button id="volumeBtn" class="yt-btn" title="Volumen">🔊</button>
-          <input type="range" id="volumeSlider" class="yt-volume-slider" min="0" max="100" value="100">
+    <!-- Información de la canción (Visible ahora) -->
+    <div class="yt-info" style="display: flex; align-items: center; gap: 15px; padding: 10px 20px; background: rgba(0,0,0,0.2);">
+      <img id="playerThumbnail" class="player-thumbnail" src="" alt="Thumbnail" style="width: 50px; height: 50px; border-radius: 6px; object-fit: cover;">
+      <div style="flex: 1; min-width: 0;">
+        <h3 id="playerTitle" class="player-title" style="margin: 0; font-size: 1rem; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Sin reproducción</h3>
+        <p id="playerArtist" class="player-artist" style="margin: 4px 0 0 0; font-size: 0.85rem; color: #b3b3b3;">Selecciona una canción</p>
+      </div>
+    </div>
+
+    <!-- Controles -->
+    <div class="yt-controls" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; background: rgba(0,0,0,0.4);">
+      <div class="yt-controls-left" style="display: flex; align-items: center; gap: 15px;">
+        <!-- ORDEN CORREGIDO: Anterior, Play/Pausa, Siguiente -->
+        <button id="prevBtn" class="yt-btn" title="Canción anterior" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer; padding: 8px;">⏮️</button>
+        <button id="playPauseBtn" class="yt-btn" title="Reproducir/Pausar" style="background: #1db954; border: none; color: white; font-size: 1.8rem; cursor: pointer; padding: 10px 15px; border-radius: 50%; transition: transform 0.1s;">▶️</button>
+        <button id="nextBtn" class="yt-btn" title="Canción siguiente" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer; padding: 8px;">⏭️</button>
+
+        <div class="yt-volume" style="display: flex; align-items: center; gap: 8px; margin-left: 15px;">
+          <button id="volumeBtn" class="yt-btn" title="Volumen" style="background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer;">🔊</button>
+          <input type="range" id="volumeSlider" class="yt-volume-slider" min="0" max="100" value="100" style="width: 100px; cursor: pointer; accent-color: #1db954;">
         </div>
       </div>
+
       <div class="yt-controls-right">
-        <span class="yt-time">
+        <span class="yt-time" style="color: #b3b3b3; font-size: 0.85rem; font-variant-numeric: tabular-nums;">
           <span id="currentTime">0:00</span> / <span id="totalTime">0:00</span>
         </span>
       </div>
     </div>
 
-    <!-- Info oculta de la canción -->
-    <div class="yt-info" style="display: none;">
-      <img id="playerThumbnail" class="player-thumbnail" src="" alt="">
-      <h3 id="playerTitle" class="player-title">Canción</h3>
-      <p id="playerArtist" class="player-artist">Artista</p>
-    </div>
-
+    <!-- Elemento de audio oculto -->
     <audio id="audioPlayer" preload="auto"></audio>
   </div>
 
@@ -123,12 +135,10 @@
       </div>
       <div class="modal-body">
         <p class="modal-info">El archivo se descargará con el nombre completo de la canción.</p>
-
         <div class="current-location" style="margin-bottom: 20px;">
           <span class="location-label">💡 Consejo:</span>
-          <span class="location-path">Tu navegador te preguntará dónde guardar o usará su carpeta de descargas predeterminada</span>
+          <span class="location-path">Tu navegador te preguntará dónde guardar o usará su carpeta de descargas predeterminada.</span>
         </div>
-
         <div class="remember-option">
           <label class="checkbox-label">
             <input type="checkbox" id="rememberFolder">
@@ -138,9 +148,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn-cancel" onclick="closeFolderModal()">Cancelar</button>
-        <button class="btn-confirm" id="confirmDownloadBtn" onclick="confirmDownload()">
-          ⬇️ Descargar
-        </button>
+        <button class="btn-confirm" id="confirmDownloadBtn" onclick="confirmDownload()">⬇️ Descargar</button>
       </div>
     </div>
   </div>
