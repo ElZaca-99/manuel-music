@@ -57,7 +57,7 @@ app.get('/', (req, res) => {
 });
 
 // ========================================
-// API: BUSCAR CANCIONES
+// API: BUSCAR CANCIONES (CON PAGINACIÓN HASTA 150)
 // ========================================
 
 app.get('/api/search', async (req, res) => {
@@ -66,39 +66,50 @@ app.get('/api/search', async (req, res) => {
         return res.status(400).json({ error: 'Falta el término de búsqueda' });
     }
 
-    console.log(` Buscando: "${query}" (modo: ${isLocal ? 'LOCAL' : 'NUBE'})`);
+    console.log(`🔍 Buscando: "${query}" (modo: ${isLocal ? 'LOCAL' : 'NUBE'})`);
 
     try {
         let results = [];
 
         if (isLocal && yts) {
-            // MODO LOCAL: yt-search
+            // MODO LOCAL: yt-search devuelve lo que encuentre
             const r = await yts({ query, video: true });
-            results = r.videos.slice(0, 50).map(video => ({
+            results = r.videos.map(video => ({
                 id: video.videoId,
                 title: String(video.title || 'Sin título'),
-                                                          duration: formatDuration(video.seconds),
-                                                          uploader: String(video.author?.name || video.author || 'Artista desconocido'),
-                                                          thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`,
-                                                          canDownload: true
+                                             duration: formatDuration(video.seconds),
+                                             uploader: String(video.author?.name || video.author || 'Artista desconocido'),
+                                             thumbnail: `https://img.youtube.com/vi/${video.videoId}/hqdefault.jpg`,
+                                             canDownload: true
             }));
         } else {
-            // MODO NUBE: API oficial de YouTube
-            const response = await axios.get(
-                `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=50&q=${encodeURIComponent(query)}&type=video&videoCategoryId=10&key=${YOUTUBE_API_KEY}`
-            );
+            // MODO NUBE: API oficial de YouTube con paginación (hasta 150 resultados)
+            let nextPageToken = '';
+            let totalFetched = 0;
+            const MAX_RESULTS = 150;
 
-            results = (response.data.items || []).map(item => ({
-                id: item.id.videoId,
-                title: String(item.snippet.title),
-                                                               duration: '0:00',
-                                                               uploader: String(item.snippet.channelTitle),
-                                                               thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url,
-                                                               canDownload: false
-            }));
+            do {
+                const response = await axios.get(
+                    `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=50&q=${encodeURIComponent(query)}&type=video&videoCategoryId=10&pageToken=${nextPageToken}&key=${YOUTUBE_API_KEY}`
+                );
+
+                const newSongs = (response.data.items || []).map(item => ({
+                    id: item.id.videoId,
+                    title: String(item.snippet.title),
+                                                                          duration: '0:00',
+                                                                          uploader: String(item.snippet.channelTitle),
+                                                                          thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url,
+                                                                          canDownload: false
+                }));
+
+                results = results.concat(newSongs);
+                totalFetched += newSongs.length;
+                nextPageToken = response.data.nextPageToken || '';
+
+            } while (nextPageToken && totalFetched < MAX_RESULTS);
         }
 
-        console.log(`✅ Encontradas ${results.length} canciones`);
+        console.log(`✅ Encontradas ${results.length} canciones en total`);
         res.json(results);
     } catch (error) {
         console.error('❌ Error en búsqueda:', error.response?.data || error.message);

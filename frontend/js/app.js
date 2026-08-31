@@ -1,6 +1,6 @@
 // ========================================
 // 🎵 MANUEL MUSIC - APLICACIÓN COMPLETA (MODO DUAL)
-// Versión: 10.0 - Compatible con Nube (YouTube) y Local (MP3)
+// Versión: 10.1 - Paginación (150 canciones) + Solo Anterior/Siguiente
 // ========================================
 
 const API_URL = window.location.origin;
@@ -8,7 +8,7 @@ let isPlaying = false;
 let searchTimeout = null;
 let pendingDownload = null;
 let isDragging = false;
-let currentMode = 'nube'; // Se detectará automáticamente
+let currentMode = 'nube';
 
 // Referencias DOM
 const searchInput = document.getElementById('searchInput');
@@ -34,7 +34,7 @@ const volumeSlider = document.getElementById('volumeSlider');
 const recommendedSection = document.getElementById('recommendedSection');
 const resultsSection = document.getElementById('resultsSection');
 
-// Referencias del reproductor estilo YouTube
+// Referencias del reproductor
 const progressContainer = document.getElementById('progressContainer');
 const progressBar = document.getElementById('progressBar');
 const progressFilled = document.getElementById('progressFilled');
@@ -52,7 +52,7 @@ let currentTrackIndex = -1;
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('🎵 Manuel Music App iniciada');
-    await detectMode(); // Detectar si estamos en nube o local
+    await detectMode();
     setupEventListeners();
     checkUrlForSearch();
 });
@@ -64,12 +64,11 @@ async function detectMode() {
         currentMode = data.mode === 'LOCAL' ? 'local' : 'nube';
         console.log(`🌐 Modo detectado: ${currentMode.toUpperCase()}`);
 
-        // Mostrar hint de descarga según el modo
         const downloadHint = document.createElement('div');
         downloadHint.id = 'downloadHint';
         downloadHint.style.cssText = 'text-align:center; padding:10px; background:rgba(255,255,255,0.1); border-radius:8px; margin:10px 0; font-size:0.9em; color:#aaa;';
         downloadHint.textContent = currentMode === 'nube'
-        ? '☁️ Modo Nube: La descarga de MP3 solo está disponible cuando usas la app en tu PC.'
+        ? '☁️ Modo Nube: La descarga de MP3 solo está disponible en tu PC.'
         : '💻 Modo Local: Descarga de MP3 disponible.';
 
         const container = document.querySelector('.main-container') || document.body;
@@ -91,16 +90,12 @@ function setupEventListeners() {
     });
 
         const logoBtn = document.getElementById('logoBtn');
-        if (logoBtn) {
-            logoBtn.addEventListener('click', () => {
-                window.location.href = '/';
-            });
-        }
+        if (logoBtn) logoBtn.addEventListener('click', () => { window.location.href = '/'; });
 
-        // Controles del reproductor
-        playPauseBtn.addEventListener('click', togglePlayPause);
+        // Controles del reproductor (Anterior / Siguiente / Play-Pause)
         prevBtn.addEventListener('click', playPrevious);
         nextBtn.addEventListener('click', playNext);
+        playPauseBtn.addEventListener('click', togglePlayPause);
 
         // Control de volumen
         volumeBtn.addEventListener('click', () => {
@@ -121,85 +116,57 @@ function setupEventListeners() {
             volumeBtn.textContent = audioPlayer.volume === 0 ? '🔇' : audioPlayer.volume < 0.5 ? '🔉' : '🔊';
         });
 
-        // Barra de progreso - clic para saltar
+        // Barra de progreso
         progressContainer.addEventListener('click', seekToPosition);
 
-        // Drag de la barra de progreso (Mouse)
-        progressThumb.addEventListener('mousedown', (e) => {
-            isDragging = true;
-            e.preventDefault();
-        });
-
+        progressThumb.addEventListener('mousedown', (e) => { isDragging = true; e.preventDefault(); });
         document.addEventListener('mousemove', (e) => {
             if (!isDragging) return;
             const rect = progressBar.getBoundingClientRect();
             const pos = (e.clientX - rect.left) / rect.width;
             const clampedPos = Math.max(0, Math.min(1, pos));
-            const percent = clampedPos * 100;
-
-            progressFilled.style.width = `${percent}%`;
-            progressThumb.style.left = `${percent}%`;
-
-            if (audioPlayer.duration) {
-                currentTimeEl.textContent = formatTime(clampedPos * audioPlayer.duration);
-            }
+            progressFilled.style.width = `${clampedPos * 100}%`;
+            progressThumb.style.left = `${clampedPos * 100}%`;
+            if (audioPlayer.duration) currentTimeEl.textContent = formatTime(clampedPos * audioPlayer.duration);
         });
+            document.addEventListener('mouseup', (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+                const rect = progressBar.getBoundingClientRect();
+                const clampedPos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                if (audioPlayer.duration) audioPlayer.currentTime = clampedPos * audioPlayer.duration;
+            });
 
-        document.addEventListener('mouseup', (e) => {
-            if (!isDragging) return;
-            isDragging = false;
-            const rect = progressBar.getBoundingClientRect();
-            const pos = (e.clientX - rect.left) / rect.width;
-            const clampedPos = Math.max(0, Math.min(1, pos));
-            if (audioPlayer.duration) {
-                audioPlayer.currentTime = clampedPos * audioPlayer.duration;
-            }
-        });
+                // Soporte táctil
+                progressThumb.addEventListener('touchstart', () => { isDragging = true; }, { passive: true });
+                document.addEventListener('touchmove', (e) => {
+                    if (!isDragging) return;
+                    const touch = e.touches[0];
+                    const rect = progressBar.getBoundingClientRect();
+                    const clampedPos = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+                    progressFilled.style.width = `${clampedPos * 100}%`;
+                    progressThumb.style.left = `${clampedPos * 100}%`;
+                    if (audioPlayer.duration) currentTimeEl.textContent = formatTime(clampedPos * audioPlayer.duration);
+                }, { passive: true });
+                    document.addEventListener('touchend', (e) => {
+                        if (!isDragging) return;
+                        isDragging = false;
+                        const touch = e.changedTouches[0];
+                        const rect = progressBar.getBoundingClientRect();
+                        const clampedPos = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+                        if (audioPlayer.duration) audioPlayer.currentTime = clampedPos * audioPlayer.duration;
+                    });
 
-        // Soporte táctil (móvil)
-        progressThumb.addEventListener('touchstart', () => { isDragging = true; }, { passive: true });
+                        audioPlayer.addEventListener('timeupdate', updateProgress);
+                        audioPlayer.addEventListener('loadedmetadata', () => { totalTimeEl.textContent = formatTime(audioPlayer.duration); });
+                        audioPlayer.addEventListener('ended', () => {
+                            isPlaying = false;
+                            playPauseBtn.textContent = '▶️';
+                            playNext();
+                        });
 
-        document.addEventListener('touchmove', (e) => {
-            if (!isDragging) return;
-            const touch = e.touches[0];
-            const rect = progressBar.getBoundingClientRect();
-            const pos = (touch.clientX - rect.left) / rect.width;
-            const clampedPos = Math.max(0, Math.min(1, pos));
-            const percent = clampedPos * 100;
-
-            progressFilled.style.width = `${percent}%`;
-            progressThumb.style.left = `${percent}%`;
-
-            if (audioPlayer.duration) {
-                currentTimeEl.textContent = formatTime(clampedPos * audioPlayer.duration);
-            }
-        }, { passive: true });
-
-        document.addEventListener('touchend', (e) => {
-            if (!isDragging) return;
-            isDragging = false;
-            const touch = e.changedTouches[0];
-            const rect = progressBar.getBoundingClientRect();
-            const pos = (touch.clientX - rect.left) / rect.width;
-            const clampedPos = Math.max(0, Math.min(1, pos));
-            if (audioPlayer.duration) {
-                audioPlayer.currentTime = clampedPos * audioPlayer.duration;
-            }
-        });
-
-        // Actualizar barra de progreso mientras suena
-        audioPlayer.addEventListener('timeupdate', updateProgress);
-        audioPlayer.addEventListener('loadedmetadata', () => {
-            totalTimeEl.textContent = formatTime(audioPlayer.duration);
-        });
-        audioPlayer.addEventListener('ended', () => {
-            isPlaying = false;
-            playPauseBtn.textContent = '▶️';
-            playNext();
-        });
-
-        window.addEventListener('popstate', handlePopState);
-        loadRandomArtists();
+                        window.addEventListener('popstate', handlePopState);
+                        loadRandomArtists();
 }
 
 function checkUrlForSearch() {
@@ -214,7 +181,7 @@ function checkUrlForSearch() {
 }
 
 // ========================================
-// ARTISTAS ALEATORIOS
+// ARTISTAS ALEATORIOS Y RECOMENDADOS
 // ========================================
 
 async function loadRandomArtists() {
@@ -224,31 +191,76 @@ async function loadRandomArtists() {
         const artists = await response.json();
         if (artists.error) return;
         renderQuickSearchButtons(artists);
-    } catch (error) {
-        console.error('Error cargando artistas aleatorios:', error);
-    }
+    } catch (error) { console.error('Error cargando artistas:', error); }
 }
 
 function renderQuickSearchButtons(artists) {
     const quickSearchContainer = document.querySelector('.quick-search');
     if (!quickSearchContainer) return;
-
     quickSearchContainer.innerHTML = '';
     const label = document.createElement('span');
     label.className = 'quick-label';
     label.textContent = 'Prueba con:';
     quickSearchContainer.appendChild(label);
-
     artists.forEach(artist => {
         const btn = document.createElement('button');
         btn.className = 'quick-btn';
         btn.textContent = artist;
-        btn.addEventListener('click', () => {
-            searchInput.value = artist;
-            performSearch();
-        });
+        btn.addEventListener('click', () => { searchInput.value = artist; performSearch(); });
         quickSearchContainer.appendChild(btn);
     });
+}
+
+async function loadRecommended() {
+    const container = document.getElementById('recommendedContainer');
+    const loading = document.getElementById('recommendedLoading');
+    playlist = [];
+    currentTrackIndex = -1;
+    try {
+        const response = await fetch(`${API_URL}/api/recommended`);
+        const categories = await response.json();
+        loading.style.display = 'none';
+        container.innerHTML = '';
+        Object.values(categories).forEach(category => {
+            if (category.songs && category.songs.length > 0) {
+                container.appendChild(createRecommendedSection(category));
+            }
+        });
+    } catch (error) {
+        console.error('Error cargando recomendaciones:', error);
+        loading.innerHTML = '<p class="error-text">Error al cargar</p>';
+    }
+}
+
+function createRecommendedSection(category) {
+    const section = document.createElement('div');
+    section.className = 'recommended-category';
+    category.songs.forEach(song => { if (song.id && song.id.length === 11) playlist.push(song); });
+
+    const songsHtml = category.songs.map((song, index) => {
+        const isValidId = song.id && song.id.length === 11;
+        const thumbnailUrl = isValidId ? `https://img.youtube.com/vi/${song.id}/hqdefault.jpg` : getFallbackThumbnail();
+        const escapedTitle = escapeHtml(song.title).replace(/'/g, "\\'");
+        const escapedArtist = escapeHtml(song.uploader).replace(/'/g, "\\'");
+        const canDownload = song.canDownload !== false;
+
+        return `
+        <div class="rec-song-card" style="animation-delay: ${index * 0.05}s">
+        <img src="${thumbnailUrl}" alt="${escapeHtml(song.title)}" class="rec-thumbnail" onerror="this.onerror=null; this.src='${getFallbackThumbnail()}';">
+        <div class="rec-info">
+        <h4 class="rec-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</h4>
+        <p class="rec-artist">${escapeHtml(song.uploader)}</p>
+        </div>
+        <div class="rec-actions">
+        <button class="rec-btn rec-btn-play" onclick="playPreview('${song.id}', '${escapedTitle}', '${escapedArtist}', '${thumbnailUrl}')" ${!isValidId ? 'disabled' : ''}>▶️</button>
+        <button class="rec-btn rec-btn-download" onclick="downloadSong('${song.id}', '${escapedTitle}', '${escapedArtist}', '${thumbnailUrl}')" ${!canDownload ? 'disabled title="Solo en local"' : ''}>${canDownload ? '⬇️' : '☁️'}</button>
+        </div>
+        </div>
+        `;
+    }).join('');
+
+    section.innerHTML = `<h3 class="category-title">${category.title}</h3><div class="rec-grid">${songsHtml}</div>`;
+    return section;
 }
 
 // ========================================
@@ -261,8 +273,7 @@ async function performSearch(queryFromUrl = null) {
 
     if (!queryFromUrl) {
         searchInput.value = query;
-        const newUrl = `${window.location.pathname}?q=${encodeURIComponent(query)}`;
-        window.history.pushState({ search: query }, '', newUrl);
+        window.history.pushState({ search: query }, '', `${window.location.pathname}?q=${encodeURIComponent(query)}`);
     }
 
     recommendedSection.style.display = 'none';
@@ -305,9 +316,7 @@ function resetToInitialState() {
     window.history.replaceState({}, '', window.location.pathname);
     recommendedSection.style.display = 'block';
     resultsSection.style.display = 'none';
-    if (document.getElementById('recommendedContainer')?.children.length === 0) {
-        loadRecommended();
-    }
+    if (document.getElementById('recommendedContainer')?.children.length === 0) loadRecommended();
 }
 
 function displayResults(songs, query) {
@@ -322,8 +331,7 @@ function displayResults(songs, query) {
     currentTrackIndex = -1;
 
     songs.forEach((song, index) => {
-        const card = createSongCard(song, index);
-        resultsGrid.appendChild(card);
+        resultsGrid.appendChild(createSongCard(song, index));
     });
 }
 
@@ -336,7 +344,7 @@ function createSongCard(song, index) {
     const escapedArtist = escapeHtml(song.uploader);
     const isValidId = song.id && song.id.length === 11;
     const thumbnailUrl = isValidId ? `https://img.youtube.com/vi/${song.id}/hqdefault.jpg` : getFallbackThumbnail();
-    const canDownload = song.canDownload !== false; // true por defecto si no viene la propiedad
+    const canDownload = song.canDownload !== false;
 
     const escapedTitleForAttr = escapedTitle.replace(/'/g, "\\'");
     const escapedArtistForAttr = escapedArtist.replace(/'/g, "\\'");
@@ -363,93 +371,22 @@ function getFallbackThumbnail() {
 }
 
 // ========================================
-// MÚSICA RECOMENDADA
-// ========================================
-
-async function loadRecommended() {
-    const container = document.getElementById('recommendedContainer');
-    const loading = document.getElementById('recommendedLoading');
-    playlist = [];
-    currentTrackIndex = -1;
-
-    try {
-        const response = await fetch(`${API_URL}/api/recommended`);
-        const categories = await response.json();
-        loading.style.display = 'none';
-        container.innerHTML = '';
-
-        Object.values(categories).forEach(category => {
-            if (category.songs && category.songs.length > 0) {
-                const section = createRecommendedSection(category);
-                container.appendChild(section);
-            }
-        });
-    } catch (error) {
-        console.error('Error cargando recomendaciones:', error);
-        loading.innerHTML = '<p class="error-text">Error al cargar recomendaciones</p>';
-    }
-}
-
-function createRecommendedSection(category) {
-    const section = document.createElement('div');
-    section.className = 'recommended-category';
-
-    category.songs.forEach(song => {
-        if (song.id && song.id.length === 11) playlist.push(song);
-    });
-
-        const songsHtml = category.songs.map((song, index) => {
-            const isValidId = song.id && song.id.length === 11;
-            const thumbnailUrl = isValidId ? `https://img.youtube.com/vi/${song.id}/hqdefault.jpg` : getFallbackThumbnail();
-            const escapedTitle = escapeHtml(song.title).replace(/'/g, "\\'");
-            const escapedArtist = escapeHtml(song.uploader).replace(/'/g, "\\'");
-            const canDownload = song.canDownload !== false;
-
-            return `
-            <div class="rec-song-card" style="animation-delay: ${index * 0.05}s">
-            <img src="${thumbnailUrl}" alt="${escapeHtml(song.title)}" class="rec-thumbnail" onerror="this.onerror=null; this.src='${getFallbackThumbnail()}';">
-            <div class="rec-info">
-            <h4 class="rec-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</h4>
-            <p class="rec-artist">${escapeHtml(song.uploader)}</p>
-            </div>
-            <div class="rec-actions">
-            <button class="rec-btn rec-btn-play" onclick="playPreview('${song.id}', '${escapedTitle}', '${escapedArtist}', '${thumbnailUrl}')" ${!isValidId ? 'disabled' : ''}>▶️</button>
-            <button class="rec-btn rec-btn-download" onclick="downloadSong('${song.id}', '${escapedTitle}', '${escapedArtist}', '${thumbnailUrl}')" ${!canDownload ? 'disabled title="Solo en local"' : ''}>
-            ${canDownload ? '⬇️' : '☁️'}
-            </button>
-            </div>
-            </div>
-            `;
-        }).join('');
-
-        section.innerHTML = `<h3 class="category-title">${category.title}</h3><div class="rec-grid">${songsHtml}</div>`;
-        return section;
-}
-
-// ========================================
-// REPRODUCIR PREVIEW (LÓGICA DUAL)
+// REPRODUCIR (LÓGICA DUAL)
 // ========================================
 
 async function playPreview(id, title, artist, thumbnail) {
-    if (!id || id.length !== 11) {
-        showNotification('❌ ID de video inválido', 'error');
-        return;
-    }
+    if (!id || id.length !== 11) { showNotification('❌ ID de video inválido', 'error'); return; }
 
-    // Mostrar el reproductor visualmente
     player.style.display = 'block';
     playerThumbnail.src = thumbnail;
     playerTitle.textContent = title;
     playerArtist.textContent = artist;
 
     try {
-        // Verificamos qué tipo de stream nos devuelve el servidor
         const response = await fetch(`${API_URL}/api/stream?id=${id}`);
-
         if (response.headers.get('content-type')?.includes('application/json')) {
             const data = await response.json();
             if (data.type === 'youtube') {
-                // MODO NUBE: Usar iframe de YouTube
                 showYouTubePlayer(data.embedUrl, title);
                 isPlaying = true;
                 playPauseBtn.textContent = '⏸️';
@@ -457,8 +394,7 @@ async function playPreview(id, title, artist, thumbnail) {
             }
         }
 
-        // MODO LOCAL: El navegador manejará la redirección 302 al stream de audio
-        closeYouTubePlayer(); // Cerrar iframe si estaba abierto
+        closeYouTubePlayer();
         audioPlayer.src = `${API_URL}/api/stream?id=${id}`;
         await audioPlayer.play();
         isPlaying = true;
@@ -473,10 +409,6 @@ async function playPreview(id, title, artist, thumbnail) {
         showNotification('❌ Error al reproducir', 'error');
     }
 }
-
-// ========================================
-// REPRODUCTOR YOUTUBE (MODO NUBE)
-// ========================================
 
 function showYouTubePlayer(embedUrl, title) {
     let ytContainer = document.getElementById('youtubePlayerContainer');
@@ -507,145 +439,8 @@ function closeYouTubePlayer() {
 }
 
 // ========================================
-// DESCARGAR CANCIÓN
+// CAMBIAR DE CANCIÓN (ANTERIOR / SIGUIENTE)
 // ========================================
-
-async function downloadSong(id, title, artist, thumbnail) {
-    if (currentMode === 'nube') {
-        showNotification('☁️ La descarga de MP3 solo está disponible cuando usas la app en tu PC (modo local)', 'info');
-        return;
-    }
-
-    const btn = event.target.closest('.btn-download, .rec-btn-download');
-    if (!btn || btn.disabled) return;
-
-    pendingDownload = { id, title, artist, thumbnail, btn };
-    showFolderModal();
-}
-
-function showFolderModal() {
-    const modal = document.getElementById('folderModal');
-    if (!modal) return; // Si no existe el modal en tu HTML, lo omitimos o lo creamos dinámicamente
-    const savedFolder = localStorage.getItem('preferredDownloadFolder');
-    if (savedFolder) document.getElementById('rememberFolder').checked = true;
-    modal.style.display = 'flex';
-}
-
-function closeFolderModal() {
-    const modal = document.getElementById('folderModal');
-    if (modal) modal.style.display = 'none';
-    pendingDownload = null;
-}
-
-async function confirmDownload() {
-    if (!pendingDownload) return;
-    const { id, title, artist, thumbnail, btn } = pendingDownload;
-    const rememberFolder = document.getElementById('rememberFolder')?.checked;
-
-    if (rememberFolder) localStorage.setItem('preferredDownloadFolder', 'custom');
-    closeFolderModal();
-
-    const originalText = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '⏳...';
-    showNotification(`Descargando: ${title}`, 'info');
-
-    try {
-        const response = await fetch(`${API_URL}/api/download`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, title })
-        });
-
-        if (!response.ok) throw new Error('Error en la descarga');
-
-        const blob = await response.blob();
-        if (blob.size < 1000) throw new Error('Archivo corrupto');
-
-        const cleanTitle = title.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim().substring(0, 200);
-        const fileName = `${cleanTitle}.mp3`;
-
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-
-        setTimeout(() => {
-            window.URL.revokeObjectURL(url);
-            if (document.body.contains(a)) document.body.removeChild(a);
-        }, 100);
-
-            btn.innerHTML = '✅';
-            showNotification(`✅ "${cleanTitle}" descargada`, 'success');
-
-            setTimeout(() => {
-                btn.innerHTML = originalText;
-                btn.disabled = false;
-            }, 2000);
-
-    } catch (error) {
-        console.error('Error en descarga:', error);
-        btn.innerHTML = '❌';
-        showNotification(`❌ Error al descargar`, 'error');
-        setTimeout(() => {
-            btn.innerHTML = originalText;
-            btn.disabled = false;
-        }, 2000);
-    }
-}
-
-// ========================================
-// REPRODUCTOR - FUNCIONES BÁSICAS
-// ========================================
-
-function togglePlayPause() {
-    if (!audioPlayer.src && !document.getElementById('youtubeIframe')?.src) return;
-
-    // Si es YouTube
-    const ytIframe = document.getElementById('youtubeIframe');
-    if (ytIframe && ytIframe.src) {
-        // YouTube no permite pausar vía JS fácilmente sin su API, pero podemos cerrar/abrir o dejar que el usuario use los controles del iframe
-        showNotification('Usa los controles del reproductor de YouTube para pausar', 'info');
-        return;
-    }
-
-    // Si es audio local
-    if (isPlaying) {
-        audioPlayer.pause();
-        playPauseBtn.textContent = '▶️';
-    } else {
-        audioPlayer.play();
-        playPauseBtn.textContent = '⏸️';
-    }
-    isPlaying = !isPlaying;
-}
-
-function seekToPosition(e) {
-    const rect = progressBar.getBoundingClientRect();
-    const pos = (e.clientX - rect.left) / rect.width;
-    const clampedPos = Math.max(0, Math.min(1, pos));
-    if (audioPlayer.duration) {
-        audioPlayer.currentTime = clampedPos * audioPlayer.duration;
-    }
-}
-
-function updateProgress() {
-    if (audioPlayer.duration && !isDragging) {
-        const percent = (audioPlayer.currentTime / audioPlayer.duration) * 100;
-        progressFilled.style.width = `${percent}%`;
-        progressThumb.style.left = `${percent}%`;
-        currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
-    }
-}
-
-function formatTime(seconds) {
-    if (isNaN(seconds)) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
 
 function playNext() {
     if (playlist.length === 0) return;
@@ -668,26 +463,125 @@ function playPrevious() {
 }
 
 // ========================================
-// ESTADOS DE LA UI
+// DESCARGAR CANCIÓN
 // ========================================
 
+async function downloadSong(id, title, artist, thumbnail) {
+    if (currentMode === 'nube') {
+        showNotification('☁️ La descarga de MP3 solo está disponible en tu PC (modo local)', 'info');
+        return;
+    }
+    const btn = event.target.closest('.btn-download, .rec-btn-download');
+    if (!btn || btn.disabled) return;
+    pendingDownload = { id, title, artist, thumbnail, btn };
+    showFolderModal();
+}
+
+function showFolderModal() {
+    const modal = document.getElementById('folderModal');
+    if (!modal) return;
+    if (localStorage.getItem('preferredDownloadFolder')) document.getElementById('rememberFolder').checked = true;
+    modal.style.display = 'flex';
+}
+
+function closeFolderModal() {
+    const modal = document.getElementById('folderModal');
+    if (modal) modal.style.display = 'none';
+    pendingDownload = null;
+}
+
+async function confirmDownload() {
+    if (!pendingDownload) return;
+    const { id, title, artist, thumbnail, btn } = pendingDownload;
+    if (document.getElementById('rememberFolder')?.checked) localStorage.setItem('preferredDownloadFolder', 'custom');
+    closeFolderModal();
+
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳...';
+    showNotification(`Descargando: ${title}`, 'info');
+
+    try {
+        const response = await fetch(`${API_URL}/api/download`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, title })
+        });
+        if (!response.ok) throw new Error('Error en la descarga');
+        const blob = await response.blob();
+        if (blob.size < 1000) throw new Error('Archivo corrupto');
+
+        const cleanTitle = title.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ').trim().substring(0, 200);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${cleanTitle}.mp3`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { window.URL.revokeObjectURL(url); if (document.body.contains(a)) document.body.removeChild(a); }, 100);
+
+        btn.innerHTML = '✅';
+        showNotification(`✅ "${cleanTitle}" descargada`, 'success');
+        setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 2000);
+    } catch (error) {
+        console.error('Error en descarga:', error);
+        btn.innerHTML = '❌';
+        showNotification('❌ Error al descargar', 'error');
+        setTimeout(() => { btn.innerHTML = originalText; btn.disabled = false; }, 2000);
+    }
+}
+
+// ========================================
+// UTILIDADES Y ESTADOS
+// ========================================
+
+function togglePlayPause() {
+    if (!audioPlayer.src && !document.getElementById('youtubeIframe')?.src) return;
+    const ytIframe = document.getElementById('youtubeIframe');
+    if (ytIframe && ytIframe.src) {
+        showNotification('Usa los controles del reproductor de YouTube para pausar', 'info');
+        return;
+    }
+    if (isPlaying) {
+        audioPlayer.pause();
+        playPauseBtn.textContent = '▶️';
+    } else {
+        audioPlayer.play();
+        playPauseBtn.textContent = '⏸️';
+    }
+    isPlaying = !isPlaying;
+}
+
+function seekToPosition(e) {
+    const rect = progressBar.getBoundingClientRect();
+    const clampedPos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (audioPlayer.duration) audioPlayer.currentTime = clampedPos * audioPlayer.duration;
+}
+
+function updateProgress() {
+    if (audioPlayer.duration && !isDragging) {
+        const percent = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+        progressFilled.style.width = `${percent}%`;
+        progressThumb.style.left = `${percent}%`;
+        currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
+    }
+}
+
+function formatTime(seconds) {
+    if (isNaN(seconds)) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 function showLoading() {
-    initialState.style.display = 'none';
-    errorState.style.display = 'none';
-    resultsGrid.innerHTML = '';
-    loadingState.style.display = 'block';
-    resultsTitle.textContent = 'Buscando...';
-    resultsCount.textContent = '';
+    initialState.style.display = 'none'; errorState.style.display = 'none'; resultsGrid.innerHTML = '';
+    loadingState.style.display = 'block'; resultsTitle.textContent = 'Buscando...'; resultsCount.textContent = '';
 }
 
 function showError(message) {
-    initialState.style.display = 'none';
-    loadingState.style.display = 'none';
-    resultsGrid.innerHTML = '';
-    errorState.style.display = 'block';
-    errorMessage.textContent = message;
-    resultsTitle.textContent = 'Error';
-    resultsCount.textContent = '';
+    initialState.style.display = 'none'; loadingState.style.display = 'none'; resultsGrid.innerHTML = '';
+    errorState.style.display = 'block'; errorMessage.textContent = message; resultsTitle.textContent = 'Error'; resultsCount.textContent = '';
 }
 
 function showNotification(message, type = 'info') {
@@ -697,8 +591,7 @@ function showNotification(message, type = 'info') {
     notification.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${message}</span>`;
     notifications.appendChild(notification);
     setTimeout(() => {
-        notification.style.opacity = '0';
-        notification.style.transform = 'translateX(100%)';
+        notification.style.opacity = '0'; notification.style.transform = 'translateX(100%)';
         setTimeout(() => { if (notification.parentNode) notification.remove(); }, 300);
     }, 4000);
 }
