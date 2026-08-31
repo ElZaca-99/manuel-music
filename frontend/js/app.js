@@ -1,6 +1,6 @@
 // ========================================
-// 🎵 MANUEL MUSIC - FRONTEND COMPLETO
-// Versión Final: Modo Dual + 150 canciones + Botones funcionales
+//  MANUEL MUSIC - FRONTEND COMPLETO
+// Versión Final: Modo Dual + YouTube API + 150 canciones
 // ========================================
 
 const API_URL = window.location.origin;
@@ -9,6 +9,7 @@ let searchTimeout = null;
 let pendingDownload = null;
 let isDragging = false;
 let currentMode = 'nube';
+let ytPlayer = null; // Player de YouTube IFrame API
 
 // Referencias DOM
 const searchInput = document.getElementById('searchInput');
@@ -51,7 +52,7 @@ let currentTrackIndex = -1;
 // ========================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🎵 Manuel Music App iniciada');
+    console.log(' Manuel Music App iniciada');
     await detectMode();
     setupEventListeners();
     checkUrlForSearch();
@@ -71,7 +72,7 @@ async function detectMode() {
         ? '☁️ Modo Nube: La descarga de MP3 solo está disponible en tu PC.'
         : '💻 Modo Local: Descarga de MP3 disponible.';
 
-        const container = document.querySelector('.main-container') || document.body;
+        const container = document.querySelector('.main-content') || document.body;
         if (container) container.insertBefore(downloadHint, container.firstChild);
     } catch (error) {
         console.error('Error detectando modo:', error);
@@ -113,7 +114,7 @@ function setupEventListeners() {
 
         volumeSlider.addEventListener('input', (e) => {
             audioPlayer.volume = e.target.value / 100;
-            volumeBtn.textContent = audioPlayer.volume === 0 ? '🔇' : audioPlayer.volume < 0.5 ? '🔉' : '';
+            volumeBtn.textContent = audioPlayer.volume === 0 ? '🔇' : audioPlayer.volume < 0.5 ? '🔉' : '🔊';
         });
 
         // Barra de progreso
@@ -223,11 +224,11 @@ async function loadRecommended() {
     try {
         const response = await fetch(`${API_URL}/api/recommended`);
         const categories = await response.json();
-        loading.style.display = 'none';
-        container.innerHTML = '';
+        if (loading) loading.style.display = 'none';
+        if (container) container.innerHTML = '';
         Object.values(categories).forEach(category => {
             if (category.songs && category.songs.length > 0) {
-                container.appendChild(createRecommendedSection(category));
+                if (container) container.appendChild(createRecommendedSection(category));
             }
         });
     } catch (error) {
@@ -376,11 +377,11 @@ function getFallbackThumbnail() {
 }
 
 // ========================================
-// REPRODUCIR (LÓGICA DUAL)
+// REPRODUCIR (LÓGICA DUAL CON YOUTUBE API)
 // ========================================
 
 async function playPreview(id, title, artist, thumbnail) {
-    if (!id || id.length !== 11) { showNotification(' ID de video inválido', 'error'); return; }
+    if (!id || id.length !== 11) { showNotification('❌ ID de video inválido', 'error'); return; }
 
     if (player) {
         player.style.display = 'block';
@@ -397,18 +398,17 @@ async function playPreview(id, title, artist, thumbnail) {
                 showYouTubePlayer(data.embedUrl, title);
                 const trackIndex = playlist.findIndex(track => track.id === id);
                 if (trackIndex !== -1) currentTrackIndex = trackIndex;
-                isPlaying = true;
-                if (playPauseBtn) playPauseBtn.textContent = '⏸️';
                 showNotification(`▶️ Reproduciendo: ${title}`, 'info');
                 return;
             }
         }
 
+        // Modo local: audio directo
         closeYouTubePlayer();
         audioPlayer.src = `${API_URL}/api/stream?id=${id}`;
         await audioPlayer.play();
         isPlaying = true;
-        if (playPauseBtn) playPauseBtn.textContent = '⏸️';
+        if (playPauseBtn) playPauseBtn.textContent = '️';
 
         const trackIndex = playlist.findIndex(track => track.id === id);
         if (trackIndex !== -1) currentTrackIndex = trackIndex;
@@ -420,14 +420,37 @@ async function playPreview(id, title, artist, thumbnail) {
     }
 }
 
+// ========================================
+// YOUTUBE IFRAME API
+// ========================================
+
 function showYouTubePlayer(embedUrl, title) {
+    // Ocultar audio local
+    audioPlayer.pause();
+    audioPlayer.src = '';
+
+    // Mostrar info en el player
+    if (player) player.style.display = 'block';
+    if (playerThumbnail) playerThumbnail.style.display = 'block';
+    if (playerTitle) playerTitle.textContent = title;
+    if (playerArtist) playerArtist.textContent = 'YouTube';
+
+    // Extraer video ID
+    const videoId = embedUrl.split('v=')[1]?.split('&')[0] || embedUrl.split('/embed/')[1]?.split('?')[0];
+
+    if (!videoId) {
+        showNotification(' No se pudo obtener el ID del video', 'error');
+        return;
+    }
+
+    // Crear contenedor
     let ytContainer = document.getElementById('youtubePlayerInline');
     if (!ytContainer) {
         ytContainer = document.createElement('div');
         ytContainer.id = 'youtubePlayerInline';
-        ytContainer.style.cssText = 'width:100%; height:200px; position:absolute; top:0; left:0; border-radius:8px; overflow:hidden; background:#000;';
+        ytContainer.style.cssText = 'width:100%; height:200px; background:#000;';
 
-        const playerControls = document.querySelector('.player-controls');
+        const playerControls = document.querySelector('.yt-controls');
         if (playerControls && playerControls.parentNode) {
             playerControls.parentNode.insertBefore(ytContainer, playerControls);
         } else if (player) {
@@ -435,39 +458,68 @@ function showYouTubePlayer(embedUrl, title) {
         }
     }
 
-    ytContainer.innerHTML = `
-    <iframe
-    id="youtubeIframeInline"
-    width="100%"
-    height="100%"
-    src="${embedUrl}&autoplay=1&controls=1&modestbranding=1&rel=0"
-    frameborder="0"
-    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-    allowfullscreen
-    style="width:100%; height:100%; border:none;">
-    </iframe>
-    `;
-
+    ytContainer.innerHTML = '<div id="ytPlayerDiv"></div>';
     ytContainer.style.display = 'block';
-    if (player) player.classList.add('has-youtube');
+
+    // Cargar API de YouTube
+    if (!window.YT) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+    }
+
+    const createPlayer = () => {
+        ytPlayer = new YT.Player('ytPlayerDiv', {
+            videoId: videoId,
+            playerVars: {
+                autoplay: 1,
+                controls: 1,
+                modestbranding: 1,
+                rel: 0
+            },
+            events: {
+                'onReady': (event) => {
+                    event.target.playVideo();
+                    isPlaying = true;
+                    if (playPauseBtn) playPauseBtn.textContent = '️';
+                },
+                'onStateChange': (event) => {
+                    if (event.data === YT.PlayerState.PLAYING) {
+                        isPlaying = true;
+                        if (playPauseBtn) playPauseBtn.textContent = '⏸️';
+                    } else if (event.data === YT.PlayerState.PAUSED) {
+                        isPlaying = false;
+                        if (playPauseBtn) playPauseBtn.textContent = '▶️';
+                    } else if (event.data === YT.PlayerState.ENDED) {
+                        isPlaying = false;
+                        if (playPauseBtn) playPauseBtn.textContent = '▶️';
+                        playNext();
+                    }
+                }
+            }
+        });
+    };
+
+    if (window.YT && window.YT.Player) {
+        createPlayer();
+    } else {
+        window.onYouTubeIframeAPIReady = createPlayer;
+    }
 }
 
 function closeYouTubePlayer() {
+    if (ytPlayer) {
+        ytPlayer.destroy();
+        ytPlayer = null;
+    }
+
     const ytContainer = document.getElementById('youtubePlayerInline');
     if (ytContainer) {
         ytContainer.innerHTML = '';
         ytContainer.style.display = 'none';
     }
 
-    const ytModal = document.getElementById('youtubePlayerContainer');
-    if (ytModal) {
-        const iframe = document.getElementById('youtubeIframe');
-        if (iframe) iframe.src = '';
-        ytModal.style.display = 'none';
-    }
-
     if (playerThumbnail) playerThumbnail.style.display = 'block';
-    if (player) player.classList.remove('has-youtube');
     isPlaying = false;
     if (playPauseBtn) playPauseBtn.textContent = '▶️';
 }
@@ -585,11 +637,22 @@ async function confirmDownload() {
 // ========================================
 
 function togglePlayPause() {
-    const ytIframe = document.getElementById('youtubeIframeInline');
-    if (ytIframe && ytIframe.src) {
-        showNotification('Usa los controles del reproductor de YouTube para pausar', 'info');
+    // Si hay un player de YouTube activo
+    if (ytPlayer && ytPlayer.getPlayerState) {
+        const state = ytPlayer.getPlayerState();
+        if (state === YT.PlayerState.PLAYING) {
+            ytPlayer.pauseVideo();
+            isPlaying = false;
+            if (playPauseBtn) playPauseBtn.textContent = '▶️';
+        } else if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.CUED) {
+            ytPlayer.playVideo();
+            isPlaying = true;
+            if (playPauseBtn) playPauseBtn.textContent = '⏸️';
+        }
         return;
     }
+
+    // Si es audio local
     if (!audioPlayer.src) return;
     if (isPlaying) {
         audioPlayer.pause();
