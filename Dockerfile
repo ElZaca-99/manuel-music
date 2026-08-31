@@ -1,6 +1,4 @@
-# ========================================
 # Dockerfile para Manuel Music
-# ========================================
 
 FROM node:18-alpine
 
@@ -9,8 +7,14 @@ RUN apk update && apk add --no-cache \
     python3 \
     py3-pip \
     ffmpeg \
-    yt-dlp \
+    ca-certificates \
     && rm -rf /var/cache/apk/*
+
+# Instalar yt-dlp usando pip (más fiable que apk)
+RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
+
+# Verificar instalaciones
+RUN yt-dlp --version && ffmpeg -version | head -1
 
 # Directorio de trabajo
 WORKDIR /app
