@@ -1,7 +1,7 @@
 {
   "name": "manuel-music",
   "version": "1.0.0",
-  "description": "Manuel Music - Buscador y descargador de música",
+  "description": "Manuel Music - Buscador y reproductor de música",
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
